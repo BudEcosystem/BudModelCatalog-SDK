@@ -151,7 +151,7 @@ async def test_304_returns_cached_result(config):
     zip_bytes = build_ai_models_zip()
     call_count = 0
 
-    def _side_effect(request: httpx.Request, _route: respx.Route) -> httpx.Response:
+    def _side_effect(request: httpx.Request) -> httpx.Response:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -176,7 +176,7 @@ async def test_cache_disabled_skips_etag():
     zip_bytes = build_ai_models_zip()
     call_count = 0
 
-    def _side_effect(request: httpx.Request, _route: respx.Route) -> httpx.Response:
+    def _side_effect(request: httpx.Request) -> httpx.Response:
         nonlocal call_count
         call_count += 1
         assert "if-none-match" not in request.headers
