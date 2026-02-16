@@ -14,10 +14,7 @@ from .base import BaseSource, FetchResult
 logger = logging.getLogger(__name__)
 
 # Use C loader if available for ~10x speedup over pure-Python SafeLoader
-try:
-    _YAMLLoader = yaml.CSafeLoader
-except AttributeError:
-    _YAMLLoader = yaml.SafeLoader
+_YAMLLoader: type[yaml.SafeLoader] = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 _MAX_RESPONSE_BYTES = 50 * 1024 * 1024  # 50 MB
 _MAX_ENTRY_SIZE = 10 * 1024 * 1024  # 10 MB
