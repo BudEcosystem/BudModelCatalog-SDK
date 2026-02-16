@@ -42,25 +42,27 @@ PROVIDER_LICENSE_MAP = {
 }
 
 # Valid TensorZero provider keys (from tensorzero_providers.json)
-TENSORZERO_PROVIDERS: frozenset[str] = frozenset({
-    "together_ai",
-    "vertex_ai-gemini-models",
-    "vertex_ai-anthropic_models",
-    "gemini",
-    "deepseek",
-    "mistral",
-    "bedrock",
-    "fireworks_ai-embedding-models",
-    "azure",
-    "openai",
-    "sagemaker",
-    "xai",
-    "anthropic",
-    "hyperbolicai",
-    "huggingface",
-    "bud_sentinel",
-    "azure_content_safety",
-})
+TENSORZERO_PROVIDERS: frozenset[str] = frozenset(
+    {
+        "together_ai",
+        "vertex_ai-gemini-models",
+        "vertex_ai-anthropic_models",
+        "gemini",
+        "deepseek",
+        "mistral",
+        "bedrock",
+        "fireworks_ai-embedding-models",
+        "azure",
+        "openai",
+        "sagemaker",
+        "xai",
+        "anthropic",
+        "hyperbolicai",
+        "huggingface",
+        "bud_sentinel",
+        "azure_content_safety",
+    }
+)
 
 
 def transform_model(original_key: str, model_data: dict, tz_provider: str) -> dict:
@@ -81,9 +83,7 @@ class LiteLLMSource(BaseSource):
         if self._config.cache and self._last_etag:
             headers["If-None-Match"] = self._last_etag
 
-        response = await self._fetch_url(
-            self._config.litellm_url, headers, label="LiteLLM data"
-        )
+        response = await self._fetch_url(self._config.litellm_url, headers, label="LiteLLM data")
 
         # ETag cache hit — return cached result
         if response.status_code == 304 and self._last_result is not None:
@@ -122,15 +122,19 @@ class LiteLLMSource(BaseSource):
             tz_provider = LITELLM_TO_TENSORZERO[litellm_provider]
 
             if tz_provider not in TENSORZERO_PROVIDERS:
-                logger.warning("Mapped provider %s not in TensorZero providers, skipping", tz_provider)
+                logger.warning(
+                    "Mapped provider %s not in TensorZero providers, skipping", tz_provider
+                )
                 skipped += 1
                 continue
 
             # vertex_ai-language-models -> only Gemini models
-            if litellm_provider == "vertex_ai-language-models":
-                if "gemini" not in original_key.lower():
-                    skipped += 1
-                    continue
+            if (
+                litellm_provider == "vertex_ai-language-models"
+                and "gemini" not in original_key.lower()
+            ):
+                skipped += 1
+                continue
 
             new_key = f"{tz_provider}/{original_key}"
             result[new_key] = transform_model(original_key, model_data, tz_provider)

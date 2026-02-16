@@ -4,10 +4,10 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 import respx
+from conftest import SAMPLE_LITELLM_DATA, build_ai_models_zip
 
 from bud_model_catalog import CatalogClient, CatalogConfig
 from bud_model_catalog.exceptions import SourceFetchError
-from conftest import SAMPLE_LITELLM_DATA, build_ai_models_zip
 
 LITELLM_URL = "https://example.com/litellm.json"
 AI_MODELS_URL = "https://example.com/ai-models.zip"
@@ -22,12 +22,8 @@ def config():
 async def test_end_to_end_both_sources(config):
     zip_bytes = build_ai_models_zip()
     with respx.mock:
-        respx.get(LITELLM_URL).mock(
-            return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA)
-        )
-        respx.get(AI_MODELS_URL).mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get(LITELLM_URL).mock(return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA))
+        respx.get(AI_MODELS_URL).mock(return_value=httpx.Response(200, content=zip_bytes))
 
         client = CatalogClient(config)
         result = await client.fetch_catalog()
@@ -46,9 +42,7 @@ async def test_end_to_end_both_sources(config):
 @pytest.mark.asyncio
 async def test_fallback_on_ai_models_failure(config):
     with respx.mock:
-        respx.get(LITELLM_URL).mock(
-            return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA)
-        )
+        respx.get(LITELLM_URL).mock(return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA))
         respx.get(AI_MODELS_URL).mock(return_value=httpx.Response(500))
 
         client = CatalogClient(config)
@@ -69,9 +63,7 @@ async def test_raises_on_litellm_failure(config):
     zip_bytes = build_ai_models_zip()
     with respx.mock:
         respx.get(LITELLM_URL).mock(return_value=httpx.Response(500))
-        respx.get(AI_MODELS_URL).mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get(AI_MODELS_URL).mock(return_value=httpx.Response(200, content=zip_bytes))
 
         client = CatalogClient(config)
         with pytest.raises(SourceFetchError):
@@ -82,12 +74,8 @@ def test_fetch_catalog_sync_works(config):
     """Sync wrapper returns correct result outside an event loop."""
     zip_bytes = build_ai_models_zip()
     with respx.mock:
-        respx.get(LITELLM_URL).mock(
-            return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA)
-        )
-        respx.get(AI_MODELS_URL).mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get(LITELLM_URL).mock(return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA))
+        respx.get(AI_MODELS_URL).mock(return_value=httpx.Response(200, content=zip_bytes))
 
         client = CatalogClient(config)
         result = client.fetch_catalog_sync()
@@ -103,12 +91,8 @@ async def test_end_to_end_empty_litellm(config):
     empty_data = {"sample_spec": {"sample_key": "sample_value"}}
     zip_bytes = build_ai_models_zip()
     with respx.mock:
-        respx.get(LITELLM_URL).mock(
-            return_value=httpx.Response(200, json=empty_data)
-        )
-        respx.get(AI_MODELS_URL).mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get(LITELLM_URL).mock(return_value=httpx.Response(200, json=empty_data))
+        respx.get(AI_MODELS_URL).mock(return_value=httpx.Response(200, content=zip_bytes))
 
         client = CatalogClient(config)
         result = await client.fetch_catalog()
@@ -127,9 +111,7 @@ async def test_end_to_end_empty_litellm(config):
 async def test_non_source_fetch_error_in_ai_models_is_caught(config):
     """A TypeError (or any non-SourceFetchError) from ai-models doesn't cancel LiteLLM."""
     with respx.mock:
-        respx.get(LITELLM_URL).mock(
-            return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA)
-        )
+        respx.get(LITELLM_URL).mock(return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA))
         # ai-models will never be called because we patch the source directly
         respx.get(AI_MODELS_URL).mock(return_value=httpx.Response(200, content=b""))
 
@@ -153,12 +135,8 @@ def test_fetch_catalog_sync_from_running_loop(config):
 
     async def _run_in_thread() -> None:
         with respx.mock:
-            respx.get(LITELLM_URL).mock(
-                return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA)
-            )
-            respx.get(AI_MODELS_URL).mock(
-                return_value=httpx.Response(200, content=zip_bytes)
-            )
+            respx.get(LITELLM_URL).mock(return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA))
+            respx.get(AI_MODELS_URL).mock(return_value=httpx.Response(200, content=zip_bytes))
             client = CatalogClient(config)
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(None, client.fetch_catalog_sync)

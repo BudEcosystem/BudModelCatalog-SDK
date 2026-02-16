@@ -30,7 +30,9 @@ class CatalogClient:
             try:
                 return await self._ai_models_source.fetch()
             except Exception:
-                logger.warning("ai-models fetch failed, falling back to LiteLLM-only costs", exc_info=True)
+                logger.warning(
+                    "ai-models fetch failed, falling back to LiteLLM-only costs", exc_info=True
+                )
                 return None
 
         litellm_result, ai_models_result = await asyncio.gather(

@@ -4,13 +4,13 @@ import zipfile
 import httpx
 import pytest
 import respx
+from conftest import build_ai_models_zip
 
 from bud_model_catalog.config import CatalogConfig
 from bud_model_catalog.exceptions import SourceFetchError
 from bud_model_catalog.mappings import extract_model_name
 from bud_model_catalog.sources import ai_models as ai_models_mod
 from bud_model_catalog.sources.ai_models import AiModelsSource
-from conftest import build_ai_models_zip
 
 TEST_URL = "https://example.com/ai-models.zip"
 
@@ -24,9 +24,7 @@ def config():
 async def test_builds_lookup_correctly(config):
     zip_bytes = build_ai_models_zip()
     with respx.mock:
-        respx.get(TEST_URL).mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, content=zip_bytes))
         source = AiModelsSource(config)
         result = await source.fetch()
 
@@ -52,11 +50,17 @@ def test_extract_model_name_no_prefix():
 
 
 def test_extract_model_name_vertex_gemini():
-    assert extract_model_name("vertex_ai-gemini-models", "vertex_ai/gemini-1.5-pro") == "gemini-1.5-pro"
+    assert (
+        extract_model_name("vertex_ai-gemini-models", "vertex_ai/gemini-1.5-pro")
+        == "gemini-1.5-pro"
+    )
 
 
 def test_extract_model_name_vertex_anthropic():
-    assert extract_model_name("vertex_ai-anthropic_models", "vertex_ai/claude-3-5-haiku") == "anthropic/claude-3-5-haiku"
+    assert (
+        extract_model_name("vertex_ai-anthropic_models", "vertex_ai/claude-3-5-haiku")
+        == "anthropic/claude-3-5-haiku"
+    )
     assert extract_model_name("vertex_ai-anthropic_models", "some-other-key") == "some-other-key"
 
 
@@ -72,9 +76,7 @@ async def test_raises_on_http_error(config):
 @pytest.mark.asyncio
 async def test_raises_on_invalid_zip(config):
     with respx.mock:
-        respx.get(TEST_URL).mock(
-            return_value=httpx.Response(200, content=b"not a zip file")
-        )
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, content=b"not a zip file"))
         source = AiModelsSource(config)
         with pytest.raises(SourceFetchError, match="not a valid ZIP"):
             await source.fetch()
@@ -98,9 +100,7 @@ async def test_skips_malformed_yaml_in_zip(config):
     zip_bytes = buf.getvalue()
 
     with respx.mock:
-        respx.get(TEST_URL).mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, content=zip_bytes))
         source = AiModelsSource(config)
         result = await source.fetch()
 
@@ -120,9 +120,7 @@ async def test_empty_zip_returns_empty_lookup(config):
     zip_bytes = buf.getvalue()
 
     with respx.mock:
-        respx.get(TEST_URL).mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, content=zip_bytes))
         source = AiModelsSource(config)
         result = await source.fetch()
 
@@ -138,9 +136,7 @@ async def test_etag_stored_on_first_fetch(config):
     zip_bytes = build_ai_models_zip()
     with respx.mock:
         respx.get(TEST_URL).mock(
-            return_value=httpx.Response(
-                200, content=zip_bytes, headers={"etag": '"zip-v1"'}
-            )
+            return_value=httpx.Response(200, content=zip_bytes, headers={"etag": '"zip-v1"'})
         )
         source = AiModelsSource(config)
         result = await source.fetch()
@@ -155,13 +151,11 @@ async def test_304_returns_cached_result(config):
     zip_bytes = build_ai_models_zip()
     call_count = 0
 
-    def _side_effect(request: httpx.Request, route: respx.Route) -> httpx.Response:
+    def _side_effect(request: httpx.Request, _route: respx.Route) -> httpx.Response:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            return httpx.Response(
-                200, content=zip_bytes, headers={"etag": '"zip-v1"'}
-            )
+            return httpx.Response(200, content=zip_bytes, headers={"etag": '"zip-v1"'})
         assert request.headers.get("if-none-match") == '"zip-v1"'
         return httpx.Response(304)
 
@@ -182,7 +176,7 @@ async def test_cache_disabled_skips_etag():
     zip_bytes = build_ai_models_zip()
     call_count = 0
 
-    def _side_effect(request: httpx.Request, route: respx.Route) -> httpx.Response:
+    def _side_effect(request: httpx.Request, _route: respx.Route) -> httpx.Response:
         nonlocal call_count
         call_count += 1
         assert "if-none-match" not in request.headers
@@ -209,9 +203,7 @@ async def test_rejects_oversized_response(config, monkeypatch):
     assert len(zip_bytes) > 100  # sanity check
 
     with respx.mock:
-        respx.get(TEST_URL).mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, content=zip_bytes))
         source = AiModelsSource(config)
         with pytest.raises(SourceFetchError, match="too large"):
             await source.fetch()

@@ -200,7 +200,9 @@ def test_matched_model_with_today_deprecation_date_removed(litellm_models, ai_mo
     assert result.stats.deprecated_removed == 1
 
 
-def test_matched_model_with_past_deprecation_date_kept_when_include_deprecated(litellm_models, ai_models_lookup):
+def test_matched_model_with_past_deprecation_date_kept_when_include_deprecated(
+    litellm_models, ai_models_lookup
+):
     """Matched model with past deprecation_date is kept when include_deprecated=True."""
     litellm_models["openai/gpt-4o"]["deprecation_date"] = PAST_DATE
 

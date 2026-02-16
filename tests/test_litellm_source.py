@@ -1,11 +1,11 @@
 import httpx
 import pytest
 import respx
+from conftest import SAMPLE_LITELLM_DATA
 
 from bud_model_catalog.config import CatalogConfig
 from bud_model_catalog.exceptions import SourceFetchError
 from bud_model_catalog.sources.litellm import LiteLLMSource
-from conftest import SAMPLE_LITELLM_DATA
 
 TEST_URL = "https://example.com/litellm.json"
 
@@ -18,9 +18,7 @@ def config():
 @pytest.mark.asyncio
 async def test_fetches_and_transforms_correctly(config):
     with respx.mock:
-        respx.get(TEST_URL).mock(
-            return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA)
-        )
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA))
         source = LiteLLMSource(config)
         result = await source.fetch()
 
@@ -43,9 +41,7 @@ async def test_fetches_and_transforms_correctly(config):
 @pytest.mark.asyncio
 async def test_filters_unmapped_providers(config):
     with respx.mock:
-        respx.get(TEST_URL).mock(
-            return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA)
-        )
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA))
         source = LiteLLMSource(config)
         result = await source.fetch()
 
@@ -57,9 +53,7 @@ async def test_filters_unmapped_providers(config):
 @pytest.mark.asyncio
 async def test_vertex_ai_gemini_only_filter(config):
     with respx.mock:
-        respx.get(TEST_URL).mock(
-            return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA)
-        )
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA))
         source = LiteLLMSource(config)
         result = await source.fetch()
 
@@ -72,9 +66,7 @@ async def test_vertex_ai_gemini_only_filter(config):
 @pytest.mark.asyncio
 async def test_removes_sample_spec(config):
     with respx.mock:
-        respx.get(TEST_URL).mock(
-            return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA)
-        )
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA))
         source = LiteLLMSource(config)
         result = await source.fetch()
 
@@ -85,9 +77,7 @@ async def test_removes_sample_spec(config):
 @pytest.mark.asyncio
 async def test_filters_models_without_provider(config):
     with respx.mock:
-        respx.get(TEST_URL).mock(
-            return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA)
-        )
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA))
         source = LiteLLMSource(config)
         result = await source.fetch()
 
@@ -108,7 +98,9 @@ async def test_raises_on_http_error(config):
 async def test_raises_on_invalid_json(config):
     with respx.mock:
         respx.get(TEST_URL).mock(
-            return_value=httpx.Response(200, content=b"not json", headers={"content-type": "application/json"})
+            return_value=httpx.Response(
+                200, content=b"not json", headers={"content-type": "application/json"}
+            )
         )
         source = LiteLLMSource(config)
         with pytest.raises(SourceFetchError):
@@ -123,9 +115,7 @@ async def test_etag_stored_on_first_fetch(config):
     """After a 200 with an ETag header, source._last_etag is stored."""
     with respx.mock:
         respx.get(TEST_URL).mock(
-            return_value=httpx.Response(
-                200, json=SAMPLE_LITELLM_DATA, headers={"etag": '"abc123"'}
-            )
+            return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA, headers={"etag": '"abc123"'})
         )
         source = LiteLLMSource(config)
         result = await source.fetch()
@@ -139,13 +129,11 @@ async def test_304_returns_cached_result(config):
     """Second fetch sends If-None-Match; on 304, the cached result is returned."""
     call_count = 0
 
-    def _side_effect(request: httpx.Request, route: respx.Route) -> httpx.Response:
+    def _side_effect(request: httpx.Request, _route: respx.Route) -> httpx.Response:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            return httpx.Response(
-                200, json=SAMPLE_LITELLM_DATA, headers={"etag": '"v1"'}
-            )
+            return httpx.Response(200, json=SAMPLE_LITELLM_DATA, headers={"etag": '"v1"'})
         # Second call — should carry If-None-Match
         assert request.headers.get("if-none-match") == '"v1"'
         return httpx.Response(304)
@@ -166,7 +154,7 @@ async def test_cache_disabled_skips_etag():
     no_cache_config = CatalogConfig(litellm_url=TEST_URL, max_retries=1, cache=False)
     call_count = 0
 
-    def _side_effect(request: httpx.Request, route: respx.Route) -> httpx.Response:
+    def _side_effect(request: httpx.Request, _route: respx.Route) -> httpx.Response:
         nonlocal call_count
         call_count += 1
         assert "if-none-match" not in request.headers

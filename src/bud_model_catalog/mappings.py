@@ -39,11 +39,11 @@ def extract_model_name(litellm_provider: str, original_key: str) -> str:
     """
     if litellm_provider == "vertex_ai-anthropic_models":
         if original_key.startswith("vertex_ai/"):
-            return "anthropic/" + original_key[len("vertex_ai/"):]
+            return "anthropic/" + original_key[len("vertex_ai/") :]
         return original_key
 
     prefix = STRIP_PREFIXES.get(litellm_provider)
     if prefix and original_key.startswith(prefix):
-        return original_key[len(prefix):]
+        return original_key[len(prefix) :]
 
     return original_key

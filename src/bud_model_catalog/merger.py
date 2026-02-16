@@ -4,8 +4,8 @@ import logging
 from datetime import date
 
 from .config import CatalogConfig
-from .models import CatalogResult, MergeStats
 from .mappings import LITELLM_TO_RESEARCH, extract_model_name
+from .models import CatalogResult, MergeStats
 from .sources.base import FetchResult
 
 logger = logging.getLogger(__name__)
@@ -113,7 +113,9 @@ def merge(
             continue
 
         # Check deprecated (ai-models flag OR LiteLLM deprecation_date)
-        is_deprecated = research_entry.get("isDeprecated", False) or _is_litellm_deprecated(tz_entry)
+        is_deprecated = research_entry.get("isDeprecated", False) or _is_litellm_deprecated(
+            tz_entry
+        )
         if is_deprecated and not config.include_deprecated:
             deprecated_removed += 1
             continue
@@ -135,7 +137,10 @@ def merge(
 
     logger.info(
         "Merge: %d matched, %d unmatched, %d deprecated removed, %d cost fields updated",
-        matched, unmatched, deprecated_removed, cost_fields_updated,
+        matched,
+        unmatched,
+        deprecated_removed,
+        cost_fields_updated,
     )
 
     return CatalogResult(
