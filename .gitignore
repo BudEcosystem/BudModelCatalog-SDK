@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+
+# Package metadata
+*.egg-info/
+
+# Build artifacts
+dist/
+build/
+
+# Generated output
+catalog.json
+
+# Environment variables
+.env
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
