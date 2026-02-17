@@ -97,7 +97,7 @@ Main entry point for fetching the catalog.
 
 - `CatalogClient(config=None)` — create a client with optional `CatalogConfig`
 - `await client.fetch_catalog()` — async fetch, returns `CatalogResult`
-- `client.fetch_catalog_sync()` — sync wrapper, safe in both sync and async contexts
+- `client.fetch_catalog_sync()` — blocking sync wrapper (cannot be called from a running event loop; use `await fetch_catalog()` in async code)
 
 ### `CatalogResult`
 
