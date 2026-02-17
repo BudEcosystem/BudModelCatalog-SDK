@@ -76,38 +76,50 @@ SAMPLE_AI_MODELS_DATA = [
     {
         "provider": "openai",
         "model": "gpt-4o",
-        "costs": {
-            "input_cost_per_token": 2.5e-06,
-            "output_cost_per_token": 1e-05,
-            "cache_read_input_token_cost": 1.25e-06,
-        },
+        "costs": [
+            {
+                "region": "*",
+                "input_cost_per_token": 2.5e-06,
+                "output_cost_per_token": 1e-05,
+                "cache_read_input_token_cost": 1.25e-06,
+            },
+        ],
         "isDeprecated": False,
     },
     {
         "provider": "anthropic",
         "model": "claude-sonnet-4-20250514",
-        "costs": {
-            "input_cost_per_token": 3e-06,
-            "output_cost_per_token": 1.5e-05,
-        },
+        "costs": [
+            {
+                "region": "*",
+                "input_cost_per_token": 3e-06,
+                "output_cost_per_token": 1.5e-05,
+            },
+        ],
         "isDeprecated": False,
     },
     {
         "provider": "google-gemini",
         "model": "gemini-2.0-flash",
-        "costs": {
-            "input_cost_per_token": 7.5e-08,
-            "output_cost_per_token": 3e-07,
-        },
+        "costs": [
+            {
+                "region": "*",
+                "input_cost_per_token": 7.5e-08,
+                "output_cost_per_token": 3e-07,
+            },
+        ],
         "isDeprecated": False,
     },
     {
         "provider": "openai",
         "model": "gpt-3.5-turbo-0301",
-        "costs": {
-            "input_cost_per_token": 1.5e-06,
-            "output_cost_per_token": 2e-06,
-        },
+        "costs": [
+            {
+                "region": "*",
+                "input_cost_per_token": 1.5e-06,
+                "output_cost_per_token": 2e-06,
+            },
+        ],
         "isDeprecated": True,
     },
 ]

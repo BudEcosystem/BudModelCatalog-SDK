@@ -56,28 +56,37 @@ def ai_models_lookup():
         ("openai", "gpt-4o"): {
             "provider": "openai",
             "model": "gpt-4o",
-            "costs": {
-                "input_cost_per_token": 2.5e-06,
-                "output_cost_per_token": 1e-05,
-            },
+            "costs": [
+                {
+                    "region": "*",
+                    "input_cost_per_token": 2.5e-06,
+                    "output_cost_per_token": 1e-05,
+                },
+            ],
             "isDeprecated": False,
         },
         ("anthropic", "claude-sonnet-4-20250514"): {
             "provider": "anthropic",
             "model": "claude-sonnet-4-20250514",
-            "costs": {
-                "input_cost_per_token": 3e-06,
-                "output_cost_per_token": 1.5e-05,
-            },
+            "costs": [
+                {
+                    "region": "*",
+                    "input_cost_per_token": 3e-06,
+                    "output_cost_per_token": 1.5e-05,
+                },
+            ],
             "isDeprecated": False,
         },
         ("google-gemini", "gemini-2.0-flash"): {
             "provider": "google-gemini",
             "model": "gemini-2.0-flash",
-            "costs": {
-                "input_cost_per_token": 7.5e-08,
-                "output_cost_per_token": 3e-07,
-            },
+            "costs": [
+                {
+                    "region": "*",
+                    "input_cost_per_token": 7.5e-08,
+                    "output_cost_per_token": 3e-07,
+                },
+            ],
             "isDeprecated": False,
         },
     }
@@ -309,8 +318,8 @@ def test_empty_litellm_models_fallback():
 
 
 def test_empty_costs_in_research(litellm_models, ai_models_lookup):
-    """Matched model with empty costs dict keeps LiteLLM costs."""
-    ai_models_lookup[("openai", "gpt-4o")]["costs"] = {}
+    """Matched model with empty costs list keeps LiteLLM costs."""
+    ai_models_lookup[("openai", "gpt-4o")]["costs"] = []
 
     config = CatalogConfig()
     result = merge(_litellm_result(litellm_models), _ai_models_result(ai_models_lookup), config)
@@ -319,3 +328,87 @@ def test_empty_costs_in_research(litellm_models, ai_models_lookup):
     # Costs should be unchanged from LiteLLM since ai-models has empty costs
     assert entry["input_cost_per_token"] == 5e-06
     assert entry["output_cost_per_token"] == 1.5e-05
+
+
+# --- _extract_flat_costs / region selection tests ---
+
+
+def test_wildcard_region_costs_applied(litellm_models, ai_models_lookup):
+    """Wildcard region costs are extracted and applied to LiteLLM entry."""
+    config = CatalogConfig()
+    result = merge(_litellm_result(litellm_models), _ai_models_result(ai_models_lookup), config)
+
+    entry = result.models["openai/gpt-4o"]
+    assert entry["input_cost_per_token"] == 2.5e-06
+    assert entry["output_cost_per_token"] == 1e-05
+
+
+def test_multi_region_without_wildcard_keeps_litellm_costs(litellm_models, ai_models_lookup):
+    """Multi-region costs without wildcard keeps LiteLLM costs unchanged."""
+    ai_models_lookup[("openai", "gpt-4o")]["costs"] = [
+        {"region": "us-east-1", "input_cost_per_token": 1e-06, "output_cost_per_token": 2e-06},
+        {"region": "eu-west-1", "input_cost_per_token": 1.5e-06, "output_cost_per_token": 3e-06},
+    ]
+
+    config = CatalogConfig()
+    result = merge(_litellm_result(litellm_models), _ai_models_result(ai_models_lookup), config)
+
+    entry = result.models["openai/gpt-4o"]
+    # Should keep original LiteLLM costs — no wildcard region to pick
+    assert entry["input_cost_per_token"] == 5e-06
+    assert entry["output_cost_per_token"] == 1.5e-05
+
+
+def test_empty_costs_list_keeps_litellm_costs(litellm_models, ai_models_lookup):
+    """Empty costs list keeps LiteLLM costs unchanged."""
+    ai_models_lookup[("openai", "gpt-4o")]["costs"] = []
+
+    config = CatalogConfig()
+    result = merge(_litellm_result(litellm_models), _ai_models_result(ai_models_lookup), config)
+
+    entry = result.models["openai/gpt-4o"]
+    assert entry["input_cost_per_token"] == 5e-06
+    assert entry["output_cost_per_token"] == 1.5e-05
+
+
+def test_missing_costs_key_keeps_litellm_costs(litellm_models, ai_models_lookup):
+    """Missing costs key entirely keeps LiteLLM costs unchanged."""
+    del ai_models_lookup[("openai", "gpt-4o")]["costs"]
+
+    config = CatalogConfig()
+    result = merge(_litellm_result(litellm_models), _ai_models_result(ai_models_lookup), config)
+
+    entry = result.models["openai/gpt-4o"]
+    assert entry["input_cost_per_token"] == 5e-06
+    assert entry["output_cost_per_token"] == 1.5e-05
+
+
+def test_flat_dict_costs_backward_compatible(litellm_models, ai_models_lookup):
+    """Flat dict costs (legacy shape) still work for backward compatibility."""
+    ai_models_lookup[("openai", "gpt-4o")]["costs"] = {
+        "input_cost_per_token": 2.5e-06,
+        "output_cost_per_token": 1e-05,
+    }
+
+    config = CatalogConfig()
+    result = merge(_litellm_result(litellm_models), _ai_models_result(ai_models_lookup), config)
+
+    entry = result.models["openai/gpt-4o"]
+    assert entry["input_cost_per_token"] == 2.5e-06
+    assert entry["output_cost_per_token"] == 1e-05
+
+
+def test_wildcard_among_multiple_regions_is_selected(litellm_models, ai_models_lookup):
+    """Wildcard entry is selected even when mixed with named regions."""
+    ai_models_lookup[("openai", "gpt-4o")]["costs"] = [
+        {"region": "us-east-1", "input_cost_per_token": 9e-06, "output_cost_per_token": 9e-05},
+        {"region": "*", "input_cost_per_token": 2.5e-06, "output_cost_per_token": 1e-05},
+        {"region": "eu-west-1", "input_cost_per_token": 8e-06, "output_cost_per_token": 8e-05},
+    ]
+
+    config = CatalogConfig()
+    result = merge(_litellm_result(litellm_models), _ai_models_result(ai_models_lookup), config)
+
+    entry = result.models["openai/gpt-4o"]
+    assert entry["input_cost_per_token"] == 2.5e-06
+    assert entry["output_cost_per_token"] == 1e-05

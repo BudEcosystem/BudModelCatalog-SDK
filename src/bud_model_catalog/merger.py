@@ -40,6 +40,27 @@ def _is_litellm_deprecated(entry: dict) -> bool:
         return False
 
 
+def _extract_flat_costs(costs_field: object) -> dict:
+    """Extract a flat cost dict from the research costs field.
+
+    The research YAML stores costs as a list of region-specific dicts like
+    ``[{"region": "*", "input_cost_per_token": ...}, ...]``.  This helper
+    picks the wildcard (``region: "*"``) entry when available, falls back to
+    ``{}`` for multi-region models (so LiteLLM costs are preserved), and
+    passes through a plain dict unchanged for backward compatibility.
+    """
+    if isinstance(costs_field, dict):
+        return costs_field
+    if not isinstance(costs_field, list) or not costs_field:
+        return {}
+
+    for entry in costs_field:
+        if isinstance(entry, dict) and entry.get("region") == "*":
+            return entry
+
+    return {}
+
+
 def merge(
     litellm_result: FetchResult,
     ai_models_result: FetchResult | None,
@@ -109,7 +130,7 @@ def merge(
             continue
 
         # Overlay cost fields from ai-models
-        research_costs = research_entry.get("costs", {})
+        research_costs = _extract_flat_costs(research_entry.get("costs", {}))
         updated_entry = dict(tz_entry)
 
         for field in COMMON_COST_FIELDS:

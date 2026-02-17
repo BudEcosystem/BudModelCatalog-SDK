@@ -32,7 +32,7 @@ async def test_builds_lookup_correctly(config):
     assert ("openai", "gpt-4o") in lookup
     assert ("anthropic", "claude-sonnet-4-20250514") in lookup
     assert ("google-gemini", "gemini-2.0-flash") in lookup
-    assert lookup[("openai", "gpt-4o")]["costs"]["input_cost_per_token"] == 2.5e-06
+    assert lookup[("openai", "gpt-4o")]["costs"][0]["input_cost_per_token"] == 2.5e-06
     assert result.source_name == "ai_models"
 
 
