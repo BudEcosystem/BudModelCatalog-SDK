@@ -85,6 +85,23 @@ def test_fetch_catalog_sync_works(config):
 
 
 @pytest.mark.asyncio
+async def test_fetch_catalog_sync_inside_running_loop(config):
+    """Sync wrapper works when called from within a running event loop (e.g. Jupyter)."""
+    zip_bytes = build_ai_models_zip()
+    with respx.mock:
+        respx.get(LITELLM_URL).mock(return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA))
+        respx.get(AI_MODELS_URL).mock(return_value=httpx.Response(200, content=zip_bytes))
+
+        client = CatalogClient(config)
+        # This is called from inside pytest-asyncio's running event loop
+        result = client.fetch_catalog_sync()
+
+    assert len(result.models) > 0
+    assert result.stats.total_litellm > 0
+    assert result.litellm_fetched_at is not None
+
+
+@pytest.mark.asyncio
 async def test_end_to_end_empty_litellm(config):
     """Empty LiteLLM data (after removing sample_spec) produces empty catalog."""
     empty_data = {"sample_spec": {"sample_key": "sample_value"}}
