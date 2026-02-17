@@ -54,13 +54,12 @@ def merge(
             fallback_models = dict(litellm_models)
             fallback_deprecated = 0
         else:
-            fallback_models = {}
-            fallback_deprecated = 0
-            for key, entry in litellm_models.items():
-                if _is_litellm_deprecated(entry):
-                    fallback_deprecated += 1
-                else:
-                    fallback_models[key] = entry
+            fallback_models = {
+                key: entry
+                for key, entry in litellm_models.items()
+                if not _is_litellm_deprecated(entry)
+            }
+            fallback_deprecated = total_litellm - len(fallback_models)
         return CatalogResult(
             models=fallback_models,
             stats=MergeStats(
@@ -86,38 +85,27 @@ def merge(
     for tz_key, tz_entry in litellm_models.items():
         litellm_provider = tz_entry.get("litellm_provider", "")
 
-        # Check if provider is mapped to ai-models
-        if litellm_provider not in LITELLM_TO_RESEARCH:
-            if not config.include_deprecated and _is_litellm_deprecated(tz_entry):
-                deprecated_removed += 1
-                continue
-            output[tz_key] = tz_entry
-            unmatched += 1
-            continue
+        # Try to find a matching ai-models entry
+        research_entry: dict | None = None
+        if litellm_provider in LITELLM_TO_RESEARCH:
+            original_key = tz_entry.get("metadata", {}).get("original_key", "")
+            model_name = extract_model_name(litellm_provider, original_key)
+            research_provider = LITELLM_TO_RESEARCH[litellm_provider]
+            research_entry = research_lookup.get((research_provider, model_name))
 
-        # Extract model name for lookup
-        original_key = tz_entry.get("metadata", {}).get("original_key", "")
-        model_name = extract_model_name(litellm_provider, original_key)
-        research_provider = LITELLM_TO_RESEARCH[litellm_provider]
-
-        # Look up in ai-models
-        research_key = (research_provider, model_name)
-        research_entry = research_lookup.get(research_key)
-
-        if research_entry is None:
-            if not config.include_deprecated and _is_litellm_deprecated(tz_entry):
-                deprecated_removed += 1
-                continue
-            output[tz_key] = tz_entry
-            unmatched += 1
-            continue
-
-        # Check deprecated (ai-models flag OR LiteLLM deprecation_date)
-        is_deprecated = research_entry.get("isDeprecated", False) or _is_litellm_deprecated(
-            tz_entry
+        # Determine deprecation status
+        is_deprecated = _is_litellm_deprecated(tz_entry) or (
+            research_entry is not None and research_entry.get("isDeprecated", False)
         )
+
         if is_deprecated and not config.include_deprecated:
             deprecated_removed += 1
+            continue
+
+        # No match — keep original LiteLLM entry as-is
+        if research_entry is None:
+            output[tz_key] = tz_entry
+            unmatched += 1
             continue
 
         # Overlay cost fields from ai-models

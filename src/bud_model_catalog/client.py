@@ -43,16 +43,8 @@ class CatalogClient:
         return merge(litellm_result, ai_models_result, self._config)
 
     def fetch_catalog_sync(self) -> CatalogResult:
-        """Sync wrapper — safe to call from both sync and async contexts."""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
+        """Sync wrapper for fetch_catalog.
 
-        if loop and loop.is_running():
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, self.fetch_catalog()).result()
-
+        This is a blocking call. In async code, await fetch_catalog() instead.
+        """
         return asyncio.run(self.fetch_catalog())

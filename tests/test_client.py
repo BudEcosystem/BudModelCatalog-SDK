@@ -1,4 +1,3 @@
-import asyncio
 from unittest.mock import AsyncMock
 
 import httpx
@@ -124,23 +123,3 @@ async def test_non_source_fetch_error_in_ai_models_is_caught(config):
     assert len(result.models) > 0
     # ai-models was not available
     assert result.ai_models_fetched_at is None
-
-
-# ---------- BUG-7: fetch_catalog_sync from a running event loop ----------
-
-
-def test_fetch_catalog_sync_from_running_loop(config):
-    """fetch_catalog_sync works when called from within a running event loop (ThreadPoolExecutor path)."""
-    zip_bytes = build_ai_models_zip()
-
-    async def _run_in_thread() -> None:
-        with respx.mock:
-            respx.get(LITELLM_URL).mock(return_value=httpx.Response(200, json=SAMPLE_LITELLM_DATA))
-            respx.get(AI_MODELS_URL).mock(return_value=httpx.Response(200, content=zip_bytes))
-            client = CatalogClient(config)
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, client.fetch_catalog_sync)
-            assert len(result.models) > 0
-            assert result.stats.total_litellm > 0
-
-    asyncio.run(_run_in_thread())

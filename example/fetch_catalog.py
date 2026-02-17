@@ -56,13 +56,22 @@ def main() -> None:
         print(f"... and {len(provider_counts) - 10} more providers")
 
     # ── 4. Inspect a single model ───────────────────────────────────────
-    first_key = next(iter(result.models))
-    model = result.models[first_key]
-    print(f"\nSample model: {first_key}")
-    for field in ("litellm_provider", "max_tokens", "max_input_tokens", "max_output_tokens",
-                  "input_cost_per_token", "output_cost_per_token"):
-        if field in model:
-            print(f"  {field}: {model[field]}")
+    if result.models:
+        first_key = next(iter(result.models))
+        model = result.models[first_key]
+        print(f"\nSample model: {first_key}")
+        for field in (
+            "litellm_provider",
+            "max_tokens",
+            "max_input_tokens",
+            "max_output_tokens",
+            "input_cost_per_token",
+            "output_cost_per_token",
+        ):
+            if field in model:
+                print(f"  {field}: {model[field]}")
+    else:
+        print("\nNo models in catalog.")
 
     # ── 5. Optional JSON dump ────────────────────────────────────────────
     if args.output:
