@@ -1,3 +1,27 @@
+#  -----------------------------------------------------------------------------
+#  Copyright (c) 2024 Bud Ecosystem Inc.
+#  #
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#  #
+#      http://www.apache.org/licenses/LICENSE-2.0
+#  #
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+#  -----------------------------------------------------------------------------
+
+"""Merge strategy for combining LiteLLM and ai-models data.
+
+LiteLLM provides the base catalog (model metadata, context windows, etc.).
+ai-models provides cost-accurate pricing from truefoundry/models.  The
+merge overlays ai-models cost fields onto LiteLLM entries matched via
+provider-aware name mapping, and optionally filters deprecated models.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -66,6 +90,14 @@ def merge(
     ai_models_result: FetchResult | None,
     config: CatalogConfig,
 ) -> CatalogResult:
+    """Merge LiteLLM and ai-models data into a unified catalog.
+
+    Uses LiteLLM as the base catalog and overlays cost fields from
+    ai-models where a match is found via provider-aware name mapping.
+    Deprecated models are filtered unless ``config.include_deprecated``
+    is set.  When *ai_models_result* is ``None``, returns LiteLLM data
+    as-is (with deprecation filtering only).
+    """
     litellm_models: dict[str, dict] = litellm_result.data
     total_litellm = len(litellm_models)
 

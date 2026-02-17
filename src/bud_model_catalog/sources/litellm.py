@@ -1,3 +1,26 @@
+#  -----------------------------------------------------------------------------
+#  Copyright (c) 2024 Bud Ecosystem Inc.
+#  #
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#  #
+#      http://www.apache.org/licenses/LICENSE-2.0
+#  #
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+#  -----------------------------------------------------------------------------
+
+"""LiteLLM model-prices data source.
+
+Fetches the upstream LiteLLM ``model_prices_and_context_window.json``,
+filters to supported TensorZero providers, and transforms each entry
+into the internal catalog key format (``{tz_provider}/{original_key}``).
+"""
+
 from __future__ import annotations
 
 import logging
@@ -66,6 +89,11 @@ TENSORZERO_PROVIDERS: frozenset[str] = frozenset(
 
 
 def transform_model(original_key: str, model_data: dict, tz_provider: str) -> dict:
+    """Transform a raw LiteLLM model entry for the unified catalog.
+
+    Adds ``litellm_provider``, ``metadata.original_key``, and an
+    optional ``license_id`` based on the TensorZero provider.
+    """
     transformed = dict(model_data)
     transformed["litellm_provider"] = tz_provider
     transformed["metadata"] = {"original_key": original_key}
@@ -75,10 +103,17 @@ def transform_model(original_key: str, model_data: dict, tz_provider: str) -> di
 
 
 class LiteLLMSource(BaseSource):
+    """Fetches and transforms model data from the LiteLLM pricing JSON."""
+
     def __init__(self, config: CatalogConfig) -> None:
         super().__init__(config)
 
     async def fetch(self) -> FetchResult:
+        """Download the LiteLLM JSON, filter to supported providers, and transform.
+
+        Returns a :class:`FetchResult` whose ``data`` is a dict keyed by
+        ``{tz_provider}/{original_key}``.
+        """
         headers: dict[str, str] = {}
         if self._config.cache and self._last_etag:
             headers["If-None-Match"] = self._last_etag

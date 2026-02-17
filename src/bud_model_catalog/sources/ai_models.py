@@ -1,3 +1,26 @@
+#  -----------------------------------------------------------------------------
+#  Copyright (c) 2024 Bud Ecosystem Inc.
+#  #
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#  #
+#      http://www.apache.org/licenses/LICENSE-2.0
+#  #
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+#  -----------------------------------------------------------------------------
+
+"""TrueFoundry ai-models data source.
+
+Downloads the truefoundry/models GitHub archive (ZIP), extracts provider
+YAML files in-memory, and builds a ``(provider, model)`` lookup dict
+used by the merger to overlay cost-accurate pricing onto LiteLLM entries.
+"""
+
 from __future__ import annotations
 
 import io
@@ -21,10 +44,17 @@ _MAX_ENTRY_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 class AiModelsSource(BaseSource):
+    """Fetches and parses model cost data from the truefoundry/models archive."""
+
     def __init__(self, config: CatalogConfig) -> None:
         super().__init__(config)
 
     async def fetch(self) -> FetchResult:
+        """Download the ZIP archive, extract YAML model files, and build a lookup.
+
+        Returns a :class:`FetchResult` whose ``data`` is a dict keyed by
+        ``(provider_name, model_name)`` tuples.
+        """
         headers: dict[str, str] = {}
         if self._config.cache and self._last_etag:
             headers["If-None-Match"] = self._last_etag

@@ -13,10 +13,17 @@ pip install bud-model-catalog
 ```python
 from bud_model_catalog import CatalogClient
 
-# Synchronous usage
-result = CatalogClient().fetch_catalog_sync()
-print(f"Fetched {len(result.models)} models")
-print(f"Stats: {result.stats}")
+client = CatalogClient()
+result = client.fetch_catalog_sync()
+
+# Inspect merge statistics
+print(result.stats)
+# MergeStats(total_litellm=847, total_output=812, matched=342, ...)
+
+# Look up a specific model's pricing
+model = result.models["openai/gpt-4o"]
+print(f"Input:  ${model['input_cost_per_token']}/token")
+print(f"Output: ${model['output_cost_per_token']}/token")
 ```
 
 ## Async Usage
@@ -30,17 +37,39 @@ async def main():
     client = CatalogClient(config)
     result = await client.fetch_catalog()
 
-    for key, model in list(result.models.items())[:5]:
-        print(f"{key}: input={model.get('input_cost_per_token')}")
+    # Filter to a single provider
+    anthropic_models = {
+        key: model for key, model in result.models.items()
+        if key.startswith("anthropic/")
+    }
+    for key, model in list(anthropic_models.items())[:3]:
+        print(f"{key}: ${model.get('input_cost_per_token', 'N/A')}/token")
 
 asyncio.run(main())
 ```
 
-Or use the module-level convenience function:
+## Jupyter / Notebook
+
+`fetch_catalog_sync()` works inside Jupyter's running event loop:
+
+```python
+# In a Jupyter notebook cell:
+from bud_model_catalog import CatalogClient
+
+client = CatalogClient()
+result = client.fetch_catalog_sync()  # works inside Jupyter's event loop
+print(f"{len(result.models)} models loaded")
+
+# Or use await directly in a notebook cell:
+result = await client.fetch_catalog()
+```
+
+## Convenience Function
 
 ```python
 from bud_model_catalog import fetch_catalog
 
+# One-shot fetch (no ETag caching across calls)
 result = await fetch_catalog()
 ```
 
