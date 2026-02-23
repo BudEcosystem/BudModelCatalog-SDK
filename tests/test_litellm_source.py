@@ -25,7 +25,7 @@ async def test_fetches_and_transforms_correctly(config):
     # Should have transformed models with valid providers
     assert "openai/gpt-4o" in result.data
     assert "anthropic/claude-sonnet-4-20250514" in result.data
-    assert "gemini/gemini/gemini-2.0-flash" in result.data
+    assert "gemini/gemini-2.0-flash" in result.data
 
     # Check transform fields
     entry = result.data["openai/gpt-4o"]
@@ -58,9 +58,9 @@ async def test_vertex_ai_gemini_only_filter(config):
         result = await source.fetch()
 
     # vertex_ai/gemini-1.5-pro should be included (has "gemini" in key)
-    assert "vertex_ai-gemini-models/vertex_ai/gemini-1.5-pro" in result.data
+    assert "vertex_ai-gemini-models/gemini-1.5-pro" in result.data
     # vertex_ai/text-bison should be filtered (no "gemini" in key)
-    assert "vertex_ai-gemini-models/vertex_ai/text-bison" not in result.data
+    assert "vertex_ai-gemini-models/text-bison" not in result.data
 
 
 @pytest.mark.asyncio
@@ -167,3 +167,63 @@ async def test_cache_disabled_skips_etag():
         await source.fetch()
 
     assert call_count == 2
+
+
+# ---------- Collision handling tests ----------
+
+
+@pytest.mark.asyncio
+async def test_collision_prefers_prefixed_entry(config):
+    """When two LiteLLM entries produce the same catalog key, prefer the prefixed one."""
+    collision_data = {
+        "deepseek-chat": {
+            "input_cost_per_token": 6e-07,
+            "max_tokens": 131072,
+            "litellm_provider": "deepseek",
+            "mode": "chat",
+        },
+        "deepseek/deepseek-chat": {
+            "input_cost_per_token": 2.7e-07,
+            "max_tokens": 8192,
+            "litellm_provider": "deepseek",
+            "mode": "chat",
+        },
+    }
+    with respx.mock:
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, json=collision_data))
+        source = LiteLLMSource(config)
+        result = await source.fetch()
+
+    entry = result.data["deepseek/deepseek-chat"]
+    # The prefixed entry (deepseek/deepseek-chat) should win
+    assert entry["metadata"]["original_key"] == "deepseek/deepseek-chat"
+    assert entry["input_cost_per_token"] == 2.7e-07
+
+
+@pytest.mark.asyncio
+async def test_collision_prefers_prefixed_entry_reverse_order(config):
+    """Prefixed entry wins even if it comes first in iteration order."""
+    from collections import OrderedDict
+
+    collision_data = OrderedDict([
+        ("deepseek/deepseek-chat", {
+            "input_cost_per_token": 2.7e-07,
+            "max_tokens": 8192,
+            "litellm_provider": "deepseek",
+            "mode": "chat",
+        }),
+        ("deepseek-chat", {
+            "input_cost_per_token": 6e-07,
+            "max_tokens": 131072,
+            "litellm_provider": "deepseek",
+            "mode": "chat",
+        }),
+    ])
+    with respx.mock:
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, json=collision_data))
+        source = LiteLLMSource(config)
+        result = await source.fetch()
+
+    entry = result.data["deepseek/deepseek-chat"]
+    assert entry["metadata"]["original_key"] == "deepseek/deepseek-chat"
+    assert entry["input_cost_per_token"] == 2.7e-07

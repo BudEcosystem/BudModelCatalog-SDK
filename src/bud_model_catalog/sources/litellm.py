@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 
 from ..config import CatalogConfig
 from ..exceptions import SourceFetchError
+from ..mappings import STRIP_PREFIXES, strip_provider_prefix
 from .base import BaseSource, FetchResult
 
 logger = logging.getLogger(__name__)
@@ -171,7 +172,20 @@ class LiteLLMSource(BaseSource):
                 skipped += 1
                 continue
 
-            new_key = f"{tz_provider}/{original_key}"
+            stripped_key = strip_provider_prefix(tz_provider, original_key)
+            new_key = f"{tz_provider}/{stripped_key}"
+
+            # Handle collision: two LiteLLM entries produce the same catalog key
+            if new_key in result:
+                prefix = STRIP_PREFIXES.get(tz_provider)
+                if prefix:
+                    existing_original = result[new_key]["metadata"]["original_key"]
+                    # Keep the prefixed entry (canonical LiteLLM routing format)
+                    if existing_original.startswith(prefix) and not original_key.startswith(prefix):
+                        skipped += 1
+                        continue
+                logger.warning("Catalog key collision on '%s', overwriting", new_key)
+
             result[new_key] = transform_model(original_key, model_data, tz_provider)
 
         logger.info("LiteLLM: transformed %d models, skipped %d", len(result), skipped)
