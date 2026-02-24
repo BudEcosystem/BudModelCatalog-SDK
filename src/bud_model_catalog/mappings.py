@@ -43,6 +43,9 @@ STRIP_PREFIXES: dict[str, str] = {
     "xai": "xai/",
     "mistral": "mistral/",
     "together_ai": "together_ai/",
+    "bedrock": "bedrock/",
+    "deepseek": "deepseek/",
+    "sagemaker": "sagemaker/",
 }
 
 
@@ -62,4 +65,12 @@ def extract_model_name(litellm_provider: str, original_key: str) -> str:
     if prefix and original_key.startswith(prefix):
         return original_key[len(prefix) :]
 
+    return original_key
+
+
+def strip_provider_prefix(tz_provider: str, original_key: str) -> str:
+    """Strip LiteLLM provider prefix from original_key for URI construction."""
+    prefix = STRIP_PREFIXES.get(tz_provider)
+    if prefix and original_key.startswith(prefix):
+        return original_key[len(prefix):]
     return original_key

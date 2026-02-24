@@ -34,7 +34,7 @@ def litellm_models():
             "max_tokens": 8192,
             "metadata": {"original_key": "claude-sonnet-4-20250514"},
         },
-        "gemini/gemini/gemini-2.0-flash": {
+        "gemini/gemini-2.0-flash": {
             "litellm_provider": "gemini",
             "input_cost_per_token": 1e-07,
             "output_cost_per_token": 4e-07,
