@@ -70,24 +70,24 @@ PROVIDER_LICENSE_MAP = {
 # Valid TensorZero provider keys (from tensorzero_providers.json)
 TENSORZERO_PROVIDERS: frozenset[str] = frozenset(
     {
-        "together_ai",
-        "vertex_ai-gemini-models",
-        "vertex_ai-anthropic_models",
-        "gemini",
+        "anthropic",
+        "azure",
+        "azure_content_safety",
+        "bedrock",
+        "bud_sentinel",
         "deepseek",
+        "fireworks_ai-embedding-models",
+        "gemini",
+        "huggingface",
+        "hyperbolicai",
         "mistral",
         "moonshotai",
-        "bedrock",
-        "fireworks_ai-embedding-models",
-        "azure",
         "openai",
         "sagemaker",
+        "together_ai",
+        "vertex_ai-anthropic_models",
+        "vertex_ai-gemini-models",
         "xai",
-        "anthropic",
-        "hyperbolicai",
-        "huggingface",
-        "bud_sentinel",
-        "azure_content_safety",
     }
 )
 
