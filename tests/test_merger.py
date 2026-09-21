@@ -412,3 +412,93 @@ def test_wildcard_among_multiple_regions_is_selected(litellm_models, ai_models_l
     entry = result.models["openai/gpt-4o"]
     assert entry["input_cost_per_token"] == 2.5e-06
     assert entry["output_cost_per_token"] == 1e-05
+
+
+def test_research_provider_names_match_upstream_directories():
+    """LITELLM_TO_RESEARCH targets must be real truefoundry/models directory names.
+
+    A typo here is silent: the lookup simply never matches and the provider
+    keeps LiteLLM's costs.  ``azure``/``xai`` were wrong for exactly that reason.
+    """
+    from bud_model_catalog.mappings import LITELLM_TO_RESEARCH
+
+    assert LITELLM_TO_RESEARCH["azure"] == "azure-open-ai"
+    assert LITELLM_TO_RESEARCH["xai"] == "xai"
+    assert LITELLM_TO_RESEARCH["deepgram"] == "deepgram"
+    assert LITELLM_TO_RESEARCH["elevenlabs"] == "elevenlabs"
+    assert LITELLM_TO_RESEARCH["groq"] == "groq"
+
+
+def test_string_scientific_notation_costs_are_coerced(litellm_models, ai_models_lookup):
+    """YAML 1.1 leaves ``5e-7`` (no decimal point) as a string — coerce to float.
+
+    Without coercion the merge replaces LiteLLM's numeric cost with a string,
+    breaking any downstream arithmetic.
+    """
+    ai_models_lookup[("openai", "gpt-4o")]["costs"] = [
+        {
+            "region": "*",
+            "input_cost_per_token": "5e-7",
+            "output_cost_per_token": "3e-5",
+        },
+    ]
+
+    config = CatalogConfig()
+    result = merge(_litellm_result(litellm_models), _ai_models_result(ai_models_lookup), config)
+
+    entry = result.models["openai/gpt-4o"]
+    assert entry["input_cost_per_token"] == pytest.approx(5e-07)
+    assert entry["output_cost_per_token"] == pytest.approx(3e-05)
+    assert isinstance(entry["input_cost_per_token"], float)
+    assert isinstance(entry["output_cost_per_token"], float)
+
+
+def test_non_numeric_cost_value_passes_through(litellm_models, ai_models_lookup):
+    """A cost value that is not a number is kept as-is rather than crashing."""
+    ai_models_lookup[("openai", "gpt-4o")]["costs"] = [
+        {"region": "*", "input_cost_per_token": "not-a-number"},
+    ]
+
+    config = CatalogConfig()
+    result = merge(_litellm_result(litellm_models), _ai_models_result(ai_models_lookup), config)
+
+    assert result.models["openai/gpt-4o"]["input_cost_per_token"] == "not-a-number"
+
+
+def test_voice_model_costs_are_merged():
+    """Voice providers merge per-second / per-character costs like any other."""
+    litellm_models = {
+        "elevenlabs/eleven_multilingual_v2": {
+            "litellm_provider": "elevenlabs",
+            "mode": "audio_speech",
+            "input_cost_per_character": 3e-04,
+            "metadata": {"original_key": "elevenlabs/eleven_multilingual_v2"},
+        },
+        "deepgram/nova-3": {
+            "litellm_provider": "deepgram",
+            "mode": "audio_transcription",
+            "input_cost_per_second": 9e-05,
+            "metadata": {"original_key": "deepgram/nova-3"},
+        },
+    }
+    lookup = {
+        ("elevenlabs", "eleven_multilingual_v2"): {
+            "provider": "elevenlabs",
+            "model": "eleven_multilingual_v2",
+            "costs": [{"region": "*", "input_cost_per_character": 1e-04}],
+            "isDeprecated": False,
+        },
+        ("deepgram", "nova-3"): {
+            "provider": "deepgram",
+            "model": "nova-3",
+            "costs": [{"region": "*", "input_cost_per_second": "7.167e-5"}],
+            "isDeprecated": False,
+        },
+    }
+
+    config = CatalogConfig()
+    result = merge(_litellm_result(litellm_models), _ai_models_result(lookup), config)
+
+    assert result.stats.matched == 2
+    assert result.models["elevenlabs/eleven_multilingual_v2"]["input_cost_per_character"] == 1e-04
+    assert result.models["deepgram/nova-3"]["input_cost_per_second"] == pytest.approx(7.167e-05)

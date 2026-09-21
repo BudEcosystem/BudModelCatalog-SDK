@@ -227,3 +227,58 @@ async def test_collision_prefers_prefixed_entry_reverse_order(config):
     entry = result.data["deepseek/deepseek-chat"]
     assert entry["metadata"]["original_key"] == "deepseek/deepseek-chat"
     assert entry["input_cost_per_token"] == 2.7e-07
+
+
+@pytest.mark.asyncio
+async def test_voice_providers_are_included(config):
+    """Voice providers present in LiteLLM must survive the provider filter.
+
+    They are keyed ``{provider}/{model}`` upstream, so the prefix is stripped
+    rather than doubled (``deepgram/nova-3``, not ``deepgram/deepgram/nova-3``).
+    """
+    voice_data = {
+        "deepgram/nova-3": {
+            "input_cost_per_second": 7.167e-05,
+            "output_cost_per_second": 0.0,
+            "litellm_provider": "deepgram",
+            "mode": "audio_transcription",
+        },
+        "elevenlabs/eleven_multilingual_v2": {
+            "input_cost_per_character": 0.0001,
+            "litellm_provider": "elevenlabs",
+            "mode": "audio_speech",
+        },
+        "assemblyai/best": {
+            "input_cost_per_second": 3.333e-05,
+            "litellm_provider": "assemblyai",
+            "mode": "audio_transcription",
+        },
+        "aws_polly/neural": {
+            "input_cost_per_character": 1.6e-05,
+            "litellm_provider": "aws_polly",
+            "mode": "audio_speech",
+        },
+        "groq/whisper-large-v3": {
+            "input_cost_per_second": 3.083e-05,
+            "litellm_provider": "groq",
+            "mode": "audio_transcription",
+        },
+    }
+    with respx.mock:
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, json=voice_data))
+        source = LiteLLMSource(config)
+        result = await source.fetch()
+
+    assert set(result.data) == {
+        "deepgram/nova-3",
+        "elevenlabs/eleven_multilingual_v2",
+        "assemblyai/best",
+        "aws_polly/neural",
+        "groq/whisper-large-v3",
+    }
+
+    entry = result.data["deepgram/nova-3"]
+    assert entry["litellm_provider"] == "deepgram"
+    assert entry["metadata"]["original_key"] == "deepgram/nova-3"
+    assert entry["mode"] == "audio_transcription"
+    assert entry["input_cost_per_second"] == 7.167e-05
