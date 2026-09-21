@@ -24,24 +24,32 @@ from __future__ import annotations
 # TensorZero litellm_provider -> ai-models research provider name
 LITELLM_TO_RESEARCH: dict[str, str] = {
     "anthropic": "anthropic",
-    "azure": "azure-openai",
+    "azure": "azure-open-ai",
     "bedrock": "aws-bedrock",
+    "deepgram": "deepgram",
+    "elevenlabs": "elevenlabs",
     "gemini": "google-gemini",
+    "groq": "groq",
     "mistral": "mistral-ai",
     "moonshotai": "moonshot-ai",
     "openai": "openai",
     "together_ai": "together-ai",
     "vertex_ai-anthropic_models": "google-vertex",
     "vertex_ai-gemini-models": "google-vertex",
-    "xai": "x-ai",
+    "xai": "xai",
 }
 
 # Prefixes to strip from metadata.original_key per provider
 STRIP_PREFIXES: dict[str, str] = {
+    "assemblyai": "assemblyai/",
+    "aws_polly": "aws_polly/",
     "azure": "azure/",
     "bedrock": "bedrock/",
+    "deepgram": "deepgram/",
     "deepseek": "deepseek/",
+    "elevenlabs": "elevenlabs/",
     "gemini": "gemini/",
+    "groq": "groq/",
     "mistral": "mistral/",
     "moonshotai": "moonshot/",
     "sagemaker": "sagemaker/",

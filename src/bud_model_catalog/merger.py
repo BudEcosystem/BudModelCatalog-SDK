@@ -64,6 +64,24 @@ def _is_litellm_deprecated(entry: dict) -> bool:
         return False
 
 
+def _coerce_cost(value: object) -> object:
+    """Coerce a research cost value to a number where possible.
+
+    The research YAML writes small costs in scientific notation without a
+    decimal point (``5e-7``).  YAML 1.1 requires one, so PyYAML parses those
+    as *strings* — overlaying them raw would replace LiteLLM's numeric cost
+    with a string.  Values that do not parse as numbers are passed through
+    unchanged (nested dicts such as ``search_context_cost_per_query``).
+    """
+    if isinstance(value, bool) or not isinstance(value, str):
+        return value
+    try:
+        return float(value)
+    except ValueError:
+        logger.warning("Non-numeric research cost value %r, keeping as-is", value)
+        return value
+
+
 def _extract_flat_costs(costs_field: object) -> dict:
     """Extract a flat cost dict from the research costs field.
 
@@ -167,7 +185,7 @@ def merge(
 
         for field in COMMON_COST_FIELDS:
             if field in research_costs:
-                new_val = research_costs[field]
+                new_val = _coerce_cost(research_costs[field])
                 old_val = updated_entry.get(field)
                 if old_val != new_val:
                     cost_fields_updated += 1

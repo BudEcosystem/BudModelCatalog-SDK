@@ -2,6 +2,8 @@
 
 Multi-source LLM model catalog with cost-accurate pricing. Fetches model metadata from [LiteLLM](https://github.com/BerriAI/litellm) and [truefoundry/models](https://github.com/truefoundry/models), merges them with cost-accurate pricing, filters deprecated models, and returns a unified catalog keyed by TensorZero provider/model.
 
+Covers text, embedding, image and **voice** models — speech-to-text and text-to-speech entries from Deepgram, ElevenLabs, AssemblyAI, AWS Polly and Groq are included, priced per second or per character.
+
 ## Install
 
 ```bash
@@ -25,6 +27,33 @@ model = result.models["openai/gpt-4o"]
 print(f"Input:  ${model['input_cost_per_token']}/token")
 print(f"Output: ${model['output_cost_per_token']}/token")
 ```
+
+## Voice Models
+
+Speech models are keyed like any other entry and carry `mode` plus duration- or
+character-based costs:
+
+```python
+result = client.fetch_catalog_sync()
+
+stt = result.models["deepgram/nova-3"]
+print(stt["mode"])                     # audio_transcription
+print(stt["input_cost_per_second"])    # 7.167e-05
+
+tts = result.models["elevenlabs/eleven_multilingual_v2"]
+print(tts["mode"])                     # audio_speech
+print(tts["input_cost_per_character"]) # 0.0001
+
+# All voice models across providers
+voice = {
+    key: m for key, m in result.models.items()
+    if m.get("mode") in ("audio_transcription", "audio_speech")
+}
+```
+
+Only providers that upstream actually publishes are included. Vendors served
+elsewhere (Cartesia, LMNT, Murf, PlayHT, Speechmatics, …) have no entries in
+either source and so do not appear in the catalog.
 
 ## Async Usage
 
