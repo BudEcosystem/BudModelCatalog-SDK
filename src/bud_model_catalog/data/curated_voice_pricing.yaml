@@ -1,0 +1,127 @@
+# Hand-curated per-unit prices for voice vendors that no machine-readable feed covers.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# LiteLLM carries audio pricing for ~20 providers, and every LLM-catalog aggregator
+# (models.dev, OpenRouter, Helicone) has the same blind spot it does: dedicated speech
+# vendors are not OpenAI-compatible chat endpoints, so none of them are listed anywhere.
+# bud-connect nonetheless offers those vendors, and a vendor offered without a price
+# cannot be billed.
+#
+# RULES FOR EDITING
+# -----------------
+# 1. Every rate is transcribed from the vendor's own published pricing page, and the URL
+#    and the date it was read go in `source`. A rate nobody can re-check is a rate nobody
+#    can trust six months from now.
+# 2. Rates are normalised to the unit bud-connect stores: per SECOND for transcription,
+#    per CHARACTER for synthesis. The vendor's display unit ($/hour, $/1K chars) goes in
+#    `source.note` so the arithmetic can be checked.
+# 3. `confidence: curated` and nothing stronger. AUTHORITATIVE is reserved for vendor
+#    price APIs (AWS, Azure, GCP).
+# 4. If a vendor sells CREDITS or quotes on contract, do not derive a number. Leave it
+#    out. bud-connect stamps `confidence: unknown` on anything with no cost fields, and a
+#    consumer that sees UNKNOWN can refuse to bill; a consumer that sees an invented
+#    number cannot tell it was invented.
+# 5. Only vendors bud-connect already offers belong here. Pricing a vendor Bud cannot
+#    dispatch adds a credential form for a dead end -- the mistake the `fireworks` and
+#    `together_ai` withdrawals were about.
+#
+# DELIBERATELY ABSENT
+# -------------------
+# cartesia       -- sells credits with model-dependent minute equivalencies. There is no
+#                   per-unit price to transcribe, only one derivable from a subscription
+#                   tier, which breaks whenever they reprice.
+# speechmatics   -- "billed to the second, based on the cost per hour", but the page
+#                   publishes one figure ($0.129 Pro) without saying which model or
+#                   whether batch or real-time. Guessing which it applies to would be
+#                   inventing a number.
+# murf, resemble, speechify, unrealspeech, smallest, hume, wellsaid, acapela, cereproc
+#                -- not yet checked. Add them the same way, one verified page at a time.
+# the regional vendors (iflytek, naver_clova, sberdevices, tinkoff, viettel_ai, zalo_ai,
+# gnani, prosa_ai, nectec, amivoice, phonexia, bhashini, reverie, fpt_ai, baidu,
+# huawei_cloud, alibaba_cloud, tencent)
+#                -- quote on contract or behind a region-locked console. No public rate.
+
+gladia:
+  # Gladia does not name its models on the pricing page; it prices two PRODUCTS, async
+  # (pre-recorded) and real-time. These keys are those product names, not API model
+  # identifiers -- whoever wires WaaV will need to map them to Gladia's endpoints.
+  async:
+    mode: audio_transcription
+    input_cost_per_second: 0.00016944444444444444
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.gladia.io/pricing
+        checked_on: "2026-09-22"
+        note: >-
+          $0.61 per hour on the Starter (pay-as-you-go) plan; 0.61 / 3600. The Growth plan
+          quotes "as low as $0.20/hr" for committed volume, which is a contract rate with
+          no published threshold ladder, so it is not modelled as a tier.
+  real-time:
+    mode: audio_transcription
+    input_cost_per_second: 0.00020833333333333335
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.gladia.io/pricing
+        checked_on: "2026-09-22"
+        note: $0.75 per hour on the Starter (pay-as-you-go) plan; 0.75 / 3600.
+
+revai:
+  # Rev AI quotes Reverb per HOUR and Whisper Large per MINUTE -- two units inside one
+  # vendor. Both normalise to per-second here, which is the point of normalising.
+  reverb:
+    mode: audio_transcription
+    input_cost_per_second: 0.00005555555555555556
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      min_billable_units: 15
+      rounding_increment: 1
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.rev.ai/pricing
+        checked_on: "2026-09-22"
+        note: >-
+          $0.20 per hour (English); 0.20 / 3600. "Rounded up to the nearest second, 15
+          second minimum" -- a 3-second clip bills as 15, which the flat rate alone
+          cannot express.
+  reverb-foreign-language:
+    mode: audio_transcription
+    input_cost_per_second: 0.00008333333333333333
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      min_billable_units: 15
+      rounding_increment: 1
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.rev.ai/pricing
+        checked_on: "2026-09-22"
+        note: $0.30 per hour across 53+ languages; 0.30 / 3600. Same 15-second minimum.
+  whisper-large:
+    mode: audio_transcription
+    input_cost_per_second: 0.00008333333333333333
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      min_billable_units: 15
+      rounding_increment: 1
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.rev.ai/pricing
+        checked_on: "2026-09-22"
+        note: >-
+          $0.005 per MINUTE, not per hour; 0.005 / 60. Human transcription ($1.99/min) and
+          forced alignment ($0.003/min) are deliberately omitted -- the first is a human
+          service rather than a model, the second a different operation.

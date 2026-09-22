@@ -43,6 +43,7 @@ LITELLM_TO_RESEARCH: dict[str, str] = {
 STRIP_PREFIXES: dict[str, str] = {
     "assemblyai": "assemblyai/",
     "aws_polly": "aws_polly/",
+    "aws_transcribe": "transcribe/",
     "azure": "azure/",
     "bedrock": "bedrock/",
     "deepgram": "deepgram/",
