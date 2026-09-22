@@ -25,7 +25,8 @@ from .config import CatalogConfig
 from .merger import merge
 from .models import CatalogResult
 from .sources.ai_models import AiModelsSource
-from .sources.base import FetchResult
+from .sources.base import BaseSource, FetchResult
+from .sources.cloud_pricing import AwsPricingSource, AzurePricingSource, apply_pricing_overlay
 from .sources.curated import CuratedSource
 from .sources.litellm import LiteLLMSource
 
@@ -45,6 +46,8 @@ class CatalogClient:
         self._litellm_source = LiteLLMSource(self._config)
         self._ai_models_source = AiModelsSource(self._config)
         self._curated_source = CuratedSource()
+        self._aws_pricing_source = AwsPricingSource(self._config)
+        self._azure_pricing_source = AzurePricingSource(self._config)
 
     async def fetch_catalog(self) -> CatalogResult:
         """Fetch from both sources concurrently, merge, return result.
@@ -62,13 +65,45 @@ class CatalogClient:
                 )
                 return None
 
-        litellm_result, ai_models_result = await asyncio.gather(
+        async def _safe(source: BaseSource, label: str) -> FetchResult | None:
+            try:
+                return await source.fetch()
+            except Exception:
+                logger.warning("%s fetch failed; continuing without it", label, exc_info=True)
+                return None
+
+        litellm_result, ai_models_result, aws_result, azure_result = await asyncio.gather(
             self._litellm_source.fetch(),
             _safe_ai_models(),
+            _safe(self._aws_pricing_source, "AWS pricing"),
+            _safe(self._azure_pricing_source, "Azure pricing"),
         )
 
         result = merge(litellm_result, ai_models_result, self._config)
-        return self._overlay_curated(result)
+        result = self._overlay_curated(result)
+        return self._overlay_cloud_pricing(result, aws_result, azure_result)
+
+    @staticmethod
+    def _overlay_cloud_pricing(
+        result: CatalogResult,
+        aws_result: FetchResult | None,
+        azure_result: FetchResult | None,
+    ) -> CatalogResult:
+        """Attach vendor-published billing blocks to entries a feed already listed.
+
+        Best-effort on purpose. These are the only self-refreshing speech prices in the
+        catalog, but they are also two more network calls on a nightly sync whose failure
+        mode is bud-connect retiring models. Losing a billing block is recoverable on the
+        next run; losing the catalog is not.
+        """
+        enriched = 0
+        for fetched in (aws_result, azure_result):
+            if fetched is not None:
+                enriched += apply_pricing_overlay(result.models, fetched.data)
+
+        if enriched:
+            logger.info("Attached %d authoritative cloud billing blocks", enriched)
+        return result
 
     def _overlay_curated(self, result: CatalogResult) -> CatalogResult:
         """Add hand-curated voice prices for vendors no feed covers.
