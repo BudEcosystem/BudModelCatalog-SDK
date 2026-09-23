@@ -28,14 +28,13 @@
 #
 # DELIBERATELY ABSENT
 # -------------------
-# cartesia       -- sells credits with model-dependent minute equivalencies. There is no
-#                   per-unit price to transcribe, only one derivable from a subscription
-#                   tier, which breaks whenever they reprice.
-# speechmatics   -- "billed to the second, based on the cost per hour", but the page
-#                   publishes one figure ($0.129 Pro) without saying which model or
-#                   whether batch or real-time. Guessing which it applies to would be
-#                   inventing a number.
-# murf, resemble, speechify, unrealspeech, smallest, hume, wellsaid, acapela, cereproc
+# unrealspeech   -- monthly character quotas (3M/42M/150M) and no per-unit rate anywhere on
+#                   the page. Nothing to transcribe.
+# murf, hume     -- pricing page is a JS shell; the raw HTML carries no numbers at all.
+#                   Needs a rendered browser, not an HTTP fetch.
+# resemble       -- the pricing page reached at /pricing/ sells deepfake DETECTION, priced
+#                   per second of analysis. Its TTS rates are somewhere else.
+# speechify, smallest, wellsaid, acapela, cereproc
 #                -- not yet checked. Add them the same way, one verified page at a time.
 # the regional vendors (iflytek, naver_clova, sberdevices, tinkoff, viettel_ai, zalo_ai,
 # gnani, prosa_ai, nectec, amivoice, phonexia, bhashini, reverie, fpt_ai, baidu,
@@ -125,3 +124,144 @@ revai:
           $0.005 per MINUTE, not per hour; 0.005 / 60. Human transcription ($1.99/min) and
           forced alignment ($0.003/min) are deliberately omitted -- the first is a human
           service rather than a model, the second a different operation.
+
+speechmatics:
+  # Read from the structured pricing table the page embeds as JSON (`"Section":"Pricing"`
+  # rows), not from the rendered text -- the two disagree. The JSON carries LIST prices; the
+  # rendered page shows a promotional rate about 46% lower (Batch Melia 1 displays $0.129/hr
+  # against a $0.24/hr list). List is stored here for the same reason AWS's tier-0 rate is:
+  # a promotional price expires, and over-estimating a cost is the safer error. The promo is
+  # recorded in each note so the gap is visible rather than surprising.
+  #
+  # The "bolt-ons" on that page (Translation $0.65/hr, Summaries, Chapters, Sentiment,
+  # Topics) are per-feature surcharges rather than models, and are excluded for the same
+  # reason AWS's Call Analytics and Redaction SKUs are.
+  batch-melia-1:
+    mode: audio_transcription
+    input_cost_per_second: 0.00006666666666666667
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.speechmatics.com/pricing
+        checked_on: "2026-09-23"
+        note: List $0.24/hr; 0.24 / 3600. Page currently displays a promotional $0.129/hr.
+  batch-standard:
+    mode: audio_transcription
+    input_cost_per_second: 0.000125
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.speechmatics.com/pricing
+        checked_on: "2026-09-23"
+        note: List $0.45/hr; 0.45 / 3600. Page currently displays a promotional $0.24/hr.
+  batch-enhanced:
+    mode: audio_transcription
+    input_cost_per_second: 0.00020833333333333335
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.speechmatics.com/pricing
+        checked_on: "2026-09-23"
+        note: List $0.75/hr; 0.75 / 3600. Page currently displays a promotional $0.40/hr.
+  real-time-standard:
+    mode: audio_transcription
+    input_cost_per_second: 0.000125
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.speechmatics.com/pricing
+        checked_on: "2026-09-23"
+        note: List $0.45/hr; 0.45 / 3600. Page currently displays a promotional $0.24/hr.
+  real-time-enhanced:
+    mode: audio_transcription
+    input_cost_per_second: 0.00022222222222222223
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.speechmatics.com/pricing
+        checked_on: "2026-09-23"
+        note: List $0.80/hr; 0.80 / 3600. Page currently displays a promotional $0.43/hr.
+  linden-1:
+    mode: audio_transcription
+    input_cost_per_second: 0.00008333333333333333
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.speechmatics.com/pricing
+        checked_on: "2026-09-23"
+        note: List $0.30/hr; 0.30 / 3600. Page shows it discounted from $0.21/hr to $0.16/hr.
+  text-to-speech:
+    mode: audio_speech
+    input_cost_per_character: 0.000011
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.speechmatics.com/pricing
+        checked_on: "2026-09-23"
+        note: $0.011 per 1k characters on the Pro plan; 0.011 / 1000.
+
+cartesia:
+  # DERIVED, not curated: Cartesia sells credits, so there is no published per-unit price.
+  # It does publish every conversion needed to compute one, which is the difference between
+  # this and inventing a number:
+  #   "1 credit equals 1 character"          (Sonic, text-to-speech)
+  #   "3 credits equals 1 second of audio"   (Ink, speech-to-text)
+  #   "At pro tier, it's $65 per 1M credits" (also: startup $45, scale $38)
+  #
+  # Pro is the entry paid tier and therefore the highest unit price -- list, by the same
+  # rule applied to AWS tiers and to Speechmatics above. Startup and Scale are volume
+  # discounts, not thresholds, so they are not modelled as `tiers`.
+  #
+  # `confidence: derived` is load-bearing. The arithmetic is an assumption about how
+  # Cartesia converts credits, and it breaks the moment they reprice a tier without
+  # repricing credits. A consumer should show it and not invoice from it unsupervised.
+  sonic:
+    mode: audio_speech
+    input_cost_per_character: 0.000065
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: derived
+      source:
+        url: https://cartesia.ai/pricing
+        checked_on: "2026-09-23"
+        note: >-
+          1 credit per character x $65 per 1M credits (pro tier) = 6.5e-05/char. Startup
+          ($45/1M) and Scale ($38/1M) give 4.5e-05 and 3.8e-05.
+  ink:
+    mode: audio_transcription
+    input_cost_per_second: 0.000195
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: derived
+      source:
+        url: https://cartesia.ai/pricing
+        checked_on: "2026-09-23"
+        note: >-
+          3 credits per second x $65 per 1M credits (pro tier) = 1.95e-04/s. Cross-check:
+          the page states Ink costs $0.39/hr on Scale; 3 x 3600 x $38/1M = $0.41/hr, a 5%
+          gap, so the conversion is close but not exact -- hence `derived`.

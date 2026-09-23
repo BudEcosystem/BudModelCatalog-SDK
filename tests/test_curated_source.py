@@ -51,21 +51,32 @@ def test_every_entry_carries_a_billing_block(loaded):
     for key, entry in loaded.items():
         billing = entry.get("billing")
         assert billing, f"{key} has no billing block"
-        assert billing["confidence"] == "curated", (
-            f"{key} claims stronger confidence than a page read"
+        assert billing["confidence"] in {"curated", "derived"}, (
+            f"{key} claims {billing['confidence']!r}; a page read is CURATED and credit "
+            "arithmetic is DERIVED. AUTHORITATIVE is reserved for vendor price APIs."
         )
         assert billing["source"]["url"], f"{key} has no source URL"
         assert billing["source"]["checked_on"], f"{key} has no checked_on date"
 
 
+#: The catalog cost field each stored unit must be carried in.
+UNIT_TO_FIELD = {"second": "input_cost_per_second", "character": "input_cost_per_character"}
+
+
 def test_every_entry_declares_the_unit_the_rate_is_in(loaded):
     """The whole reason these rates are wrong when copied naively.
 
-    Rev AI quotes Reverb per hour and Whisper Large per minute. Both are stored per second.
+    Rev AI quotes Reverb per hour and Whisper Large per minute; Speechmatics quotes STT per
+    hour and TTS per 1k characters; Cartesia quotes credits. All are stored in the catalog's
+    own units, and `unit` is what says which one.
     """
     for key, entry in loaded.items():
-        assert entry["billing"]["unit"] == "second", key
-        assert "input_cost_per_second" in entry, key
+        unit = entry["billing"]["unit"]
+        assert unit in UNIT_TO_FIELD, f"{key} declares unrecognised unit {unit!r}"
+        field = UNIT_TO_FIELD[unit]
+        assert field in entry, f"{key} declares unit {unit!r} but carries no {field}"
+        wrong = set(UNIT_TO_FIELD.values()) - {field}
+        assert not (wrong & set(entry)), f"{key} carries a rate in a unit it does not declare"
 
 
 def test_a_missing_checked_on_is_rejected(tmp_path):
@@ -109,6 +120,12 @@ def test_a_missing_file_degrades_instead_of_raising(tmp_path):
         ("revai/reverb", 0.20),
         ("revai/reverb-foreign-language", 0.30),
         ("revai/whisper-large", 0.30),  # published as $0.005/minute
+        ("speechmatics/batch-melia-1", 0.24),
+        ("speechmatics/batch-standard", 0.45),
+        ("speechmatics/batch-enhanced", 0.75),
+        ("speechmatics/real-time-standard", 0.45),
+        ("speechmatics/real-time-enhanced", 0.80),
+        ("speechmatics/linden-1", 0.30),
     ],
 )
 def test_the_stored_rate_converts_back_to_the_published_figure(loaded, key, published_per_hour):
@@ -132,8 +149,10 @@ def test_revai_records_its_minimum_billable_duration(loaded):
 
 
 def test_no_rate_is_zero_or_negative(loaded):
+    """A zero rate is a request billed as free, and it never looks wrong in review."""
     for key, entry in loaded.items():
-        assert entry["input_cost_per_second"] > 0, key
+        field = UNIT_TO_FIELD[entry["billing"]["unit"]]
+        assert entry[field] > 0, key
 
 
 # --------------------------------------------------------------------------------- #
@@ -213,3 +232,40 @@ def test_a_live_feed_entry_wins_over_a_curated_one():
     result = CatalogClient()._overlay_curated(_result(live))
 
     assert result.models["revai/reverb"]["input_cost_per_second"] == 999.0
+
+
+# --------------------------------------------------------------------------------- #
+# per-character rates, checked back against the published figure
+# --------------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("key", "published_per_1k_chars"),
+    [
+        ("speechmatics/text-to-speech", 0.011),
+        ("cartesia/sonic", 0.065),  # 1 credit/char at $65 per 1M credits
+    ],
+)
+def test_per_character_rates_convert_back(loaded, key, published_per_1k_chars):
+    assert loaded[key]["input_cost_per_character"] * 1000 == pytest.approx(published_per_1k_chars)
+
+
+def test_cartesias_stt_rate_matches_its_own_credit_arithmetic(loaded):
+    """3 credits per second at $65 per 1M credits.
+
+    Cartesia publishes no per-unit price, only the conversions. Recomputing them here means a
+    hand-typo in the YAML fails a test rather than becoming a bill.
+    """
+    assert loaded["cartesia/ink"]["input_cost_per_second"] == pytest.approx(3 * 65e-06)
+
+
+def test_only_credit_based_vendors_are_marked_derived(loaded):
+    """DERIVED means "computed from something that is not a price".
+
+    Keeping it to vendors that genuinely sell credits stops it becoming a soft label for a
+    rate nobody checked.
+    """
+    derived = {
+        k.split("/")[0] for k, v in loaded.items() if v["billing"]["confidence"] == "derived"
+    }
+    assert derived == {"cartesia"}, f"unexpected derived vendors: {sorted(derived - {'cartesia'})}"
