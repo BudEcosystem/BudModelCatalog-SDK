@@ -1,0 +1,1 @@
+"""Per-vendor adapters."""

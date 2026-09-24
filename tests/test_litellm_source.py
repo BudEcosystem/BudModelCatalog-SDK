@@ -205,20 +205,28 @@ async def test_collision_prefers_prefixed_entry_reverse_order(config):
     """Prefixed entry wins even if it comes first in iteration order."""
     from collections import OrderedDict
 
-    collision_data = OrderedDict([
-        ("deepseek/deepseek-chat", {
-            "input_cost_per_token": 2.7e-07,
-            "max_tokens": 8192,
-            "litellm_provider": "deepseek",
-            "mode": "chat",
-        }),
-        ("deepseek-chat", {
-            "input_cost_per_token": 6e-07,
-            "max_tokens": 131072,
-            "litellm_provider": "deepseek",
-            "mode": "chat",
-        }),
-    ])
+    collision_data = OrderedDict(
+        [
+            (
+                "deepseek/deepseek-chat",
+                {
+                    "input_cost_per_token": 2.7e-07,
+                    "max_tokens": 8192,
+                    "litellm_provider": "deepseek",
+                    "mode": "chat",
+                },
+            ),
+            (
+                "deepseek-chat",
+                {
+                    "input_cost_per_token": 6e-07,
+                    "max_tokens": 131072,
+                    "litellm_provider": "deepseek",
+                    "mode": "chat",
+                },
+            ),
+        ]
+    )
     with respx.mock:
         respx.get(TEST_URL).mock(return_value=httpx.Response(200, json=collision_data))
         source = LiteLLMSource(config)

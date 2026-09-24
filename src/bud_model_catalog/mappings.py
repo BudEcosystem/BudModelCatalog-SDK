@@ -83,5 +83,5 @@ def strip_provider_prefix(tz_provider: str, original_key: str) -> str:
     """Strip LiteLLM provider prefix from original_key for URI construction."""
     prefix = STRIP_PREFIXES.get(tz_provider)
     if prefix and original_key.startswith(prefix):
-        return original_key[len(prefix):]
+        return original_key[len(prefix) :]
     return original_key
