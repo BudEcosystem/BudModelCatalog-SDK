@@ -213,15 +213,22 @@ def _to_entry(outcome: ScrapeOutcome, m: Any, checked_on: str) -> dict[str, Any]
         note = (
             f"{note} Promotional rate at time of scrape: {m.promotional_rate:.6g}/{m.unit}.".strip()
         )
+    billing: dict[str, Any] = {
+        "unit": m.unit,
+        "meter": UNIT_TO_METER[m.unit],
+        "currency": "USD",
+        "confidence": m.confidence,
+    }
+    if m.min_billable_units is not None:
+        # Kept next to the rate rather than buried in the note: a consumer that does not
+        # apply it under-bills every request shorter than the minimum.
+        billing["min_billable_units"] = m.min_billable_units
     return {
         "litellm_provider": outcome.vendor,
         "mode": m.mode,
         UNIT_TO_COST_FIELD[m.unit]: m.rate,
         "billing": {
-            "unit": m.unit,
-            "meter": UNIT_TO_METER[m.unit],
-            "currency": "USD",
-            "confidence": m.confidence,
+            **billing,
             "source": {
                 "url": outcome.url,
                 "checked_on": checked_on,

@@ -445,3 +445,47 @@ def test_a_vendor_switching_billing_unit_replaces_the_stale_field():
     assert entry["input_cost_per_second"] == pytest.approx(1e-04)
     assert "input_cost_per_character" not in entry
     assert entry["billing"]["unit"] == "second"
+
+
+def test_a_minimum_charge_survives_into_the_entry():
+    """Regression for a data-loss bug found while writing the Rev AI adapter.
+
+    The overlay replaces an entry's whole billing block, so the first version of this
+    source would have scraped Rev AI's rate and silently dropped `min_billable_units: 15`
+    from the committed entry -- leaving a rate that under-bills every clip shorter than
+    15 seconds, with nothing in the diff to show it had happened.
+    """
+
+    class MinimumScraper(GoodScraper):
+        def extract(self, html):  # noqa: ARG002
+            return [
+                ScrapedModel(
+                    "reverb",
+                    "audio_transcription",
+                    "second",
+                    5.6e-05,
+                    "$0.20 per hour",
+                    min_billable_units=15.0,
+                )
+            ]
+
+    async def go():
+        with respx.mock:
+            respx.get(GOOD_URL).mock(return_value=httpx.Response(200, text="<html/>"))
+            return await run(MinimumScraper())
+
+    result = asyncio.run(go())
+    assert result.data["goodvendor/reverb"]["billing"]["min_billable_units"] == 15.0
+
+
+def test_no_minimum_means_the_key_is_absent_rather_than_null():
+    """A null minimum reads as "charges from zero", which is a different claim from
+    "the vendor does not publish one"."""
+
+    async def go():
+        with respx.mock:
+            respx.get(GOOD_URL).mock(return_value=httpx.Response(200, text="<html/>"))
+            return await run(GoodScraper())
+
+    result = asyncio.run(go())
+    assert "min_billable_units" not in result.data["goodvendor/fast"]["billing"]

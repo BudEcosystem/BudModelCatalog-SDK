@@ -15,6 +15,8 @@ import pytest
 from bud_model_catalog.scrapers.registry import all_scrapers
 from bud_model_catalog.scrapers.validate import validate_batch, validate_model
 from bud_model_catalog.scrapers.vendors.cartesia import CartesiaScraper
+from bud_model_catalog.scrapers.vendors.gladia import GladiaScraper
+from bud_model_catalog.scrapers.vendors.revai import RevAiScraper
 from bud_model_catalog.scrapers.vendors.speechmatics import SpeechmaticsScraper
 from bud_model_catalog.sources.curated import CuratedSource
 
@@ -181,3 +183,86 @@ def test_every_adapter_agrees_with_the_committed_floor(scraper):
             f"{key}: adapter reads {m.rate:g} but the committed floor says "
             f"{committed[key][field]:g}"
         )
+
+
+# --------------------------------------------------------------------------------- #
+# rev ai: a rate per model, plus the minimum that makes short clips expensive
+# --------------------------------------------------------------------------------- #
+
+
+def test_revai_extracts_the_transcription_models():
+    models = {m.model: m for m in RevAiScraper().extract(fixture("revai"))}
+    assert set(models) == {"reverb", "reverb-foreign-language", "whisper-large"}
+    assert models["reverb"].rate == pytest.approx(0.20 / 3600)
+    assert models["reverb-foreign-language"].rate == pytest.approx(0.30 / 3600)
+    # Quoted per minute, unlike the other two.
+    assert models["whisper-large"].rate == pytest.approx(0.005 / 60)
+
+
+def test_revai_carries_the_fifteen_second_minimum():
+    """The field that makes this vendor different, and the one easiest to lose.
+
+    A 2-second clip is billed as 15 seconds. An adapter that reads the rate and drops the
+    minimum under-bills nearly every request, because short clips are the common case for
+    voice.
+    """
+    for m in RevAiScraper().extract(fixture("revai")):
+        assert m.min_billable_units == 15.0, m.model
+
+
+def test_revai_model_names_do_not_absorb_surrounding_prose():
+    """Regression: the first version of this adapter regexed a tag-stripped blob and
+    produced a model called
+    "supports-all-popular-media-types-email-and-chat-support-...-reverb",
+    because a non-greedy match had no element boundary to stop at."""
+    for m in RevAiScraper().extract(fixture("revai")):
+        assert len(m.model) < 32, m.model
+        assert "get-started" not in m.model
+
+
+def test_revai_excludes_human_transcription_and_add_ons():
+    """Human Transcription is people. Forced Alignment, Language Identification,
+    Translation, Sentiment, Summarization and Topic Extraction are applied to a transcript
+    rather than deployed."""
+    models = {m.model for m in RevAiScraper().extract(fixture("revai"))}
+    for excluded in (
+        "human",
+        "forced-alignment",
+        "language-identification",
+        "language-translation",
+        "sentiment-analysis",
+        "summarization",
+        "topic-extraction",
+    ):
+        assert excluded not in models
+
+
+def test_revai_fails_loudly_when_the_blocks_are_gone():
+    with pytest.raises(ValueError, match="payment-offering"):
+        RevAiScraper().extract("<html><body>Pricing</body></html>")
+
+
+# --------------------------------------------------------------------------------- #
+# gladia: list price, not the committed-volume price
+# --------------------------------------------------------------------------------- #
+
+
+def test_gladia_extracts_both_rates():
+    models = {m.model: m for m in GladiaScraper().extract(fixture("gladia"))}
+    assert set(models) == {"async", "real-time"}
+    assert models["async"].rate == pytest.approx(0.61 / 3600)
+    assert models["real-time"].rate == pytest.approx(0.75 / 3600)
+
+
+def test_gladia_ignores_the_growth_tier_rate():
+    """Growth is "as low as $0.20 /hr" and needs an upfront commitment, which makes it a
+    volume discount rather than a list price. The fixture deliberately includes it."""
+    text = fixture("gladia")
+    assert "as low as" in text, "fixture no longer exercises the Growth tier"
+    for m in GladiaScraper().extract(text):
+        assert m.rate > 0.20 / 3600, f"{m.model} picked up a committed-volume rate"
+
+
+def test_gladia_fails_loudly_when_the_starter_rates_are_gone():
+    with pytest.raises(ValueError, match="Async at"):
+        GladiaScraper().extract("<html><body>Contact us</body></html>")

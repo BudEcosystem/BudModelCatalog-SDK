@@ -73,6 +73,10 @@ class ScrapedModel:
             one is wrong the day it ends. Recorded so the gap is visible.
         confidence: `curated` for a rate read directly off the page, `derived` for one
             computed from something that is not a price (Cartesia sells credits).
+        min_billable_units: A minimum charged per request, in the same unit as `rate`.
+            Rev AI bills a 15-second minimum, so a 2-second clip costs the same as a
+            15-second one -- an adapter that reads the rate and drops this under-bills
+            every short request, which is the common case for voice.
         note: Free text appended to the billing block's source note.
     """
 
@@ -83,6 +87,7 @@ class ScrapedModel:
     published_as: str
     promotional_rate: float | None = None
     confidence: str = "curated"
+    min_billable_units: float | None = None
     note: str | None = None
 
 

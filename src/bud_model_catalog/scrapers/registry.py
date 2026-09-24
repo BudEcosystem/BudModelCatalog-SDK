@@ -26,12 +26,16 @@ from __future__ import annotations
 
 from .base import VendorScraper
 from .vendors.cartesia import CartesiaScraper
+from .vendors.gladia import GladiaScraper
+from .vendors.revai import RevAiScraper
 from .vendors.speechmatics import SpeechmaticsScraper
 
 #: Every adapter, keyed by bud-connect provider key.
 SCRAPERS: dict[str, type[VendorScraper]] = {
     SpeechmaticsScraper.vendor: SpeechmaticsScraper,
     CartesiaScraper.vendor: CartesiaScraper,
+    RevAiScraper.vendor: RevAiScraper,
+    GladiaScraper.vendor: GladiaScraper,
 }
 
 

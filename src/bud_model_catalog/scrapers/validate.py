@@ -67,6 +67,10 @@ VALID_CONFIDENCE = frozenset({"curated", "derived"})
 #: failure without standing in the way of real price movement.
 MAX_DRIFT_FACTOR = 10.0
 
+#: Ceiling on a per-request minimum. Rev AI's is 15 seconds; a vendor charging a minimum of
+#: hours does not exist, so anything past this is a mis-parse.
+_MAX_MIN_BILLABLE_UNITS = 3600.0
+
 
 def validate_model(m: ScrapedModel) -> str | None:
     """Check one extracted model in isolation.
@@ -117,6 +121,15 @@ def validate_model(m: ScrapedModel) -> str | None:
                 f"{m.model}: promotional rate {m.promotional_rate:g} exceeds list rate "
                 f"{m.rate:g}, so the columns are likely swapped"
             )
+    if m.min_billable_units is not None:
+        if not math.isfinite(m.min_billable_units) or m.min_billable_units <= 0:
+            return (
+                f"{m.model}: min_billable_units {m.min_billable_units!r} is not a positive number"
+            )
+        if m.min_billable_units > _MAX_MIN_BILLABLE_UNITS:
+            # A "minimum" of thousands of units is a parsed year or a phone number, not a
+            # billing floor, and it would multiply every short request's cost.
+            return f"{m.model}: min_billable_units {m.min_billable_units:g} is implausibly large"
     return None
 
 
