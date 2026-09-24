@@ -43,7 +43,7 @@ SPEECHMATICS_EXPECTED = {
     "batch-enhanced": (0.75, 0.75 / 3600),
     "real-time-standard": (0.45, 0.45 / 3600),
     "real-time-enhanced": (0.80, 0.80 / 3600),
-    "linden-1": (0.30, 0.30 / 3600),
+    "linden-1": (0.40, 0.40 / 3600),
 }
 
 
@@ -113,10 +113,23 @@ def test_speechmatics_fails_loudly_when_the_page_carries_no_pricing_rows(html):
 
 def test_cartesia_derives_both_rates_from_the_page():
     models = {m.model: m for m in CartesiaScraper().extract(fixture("cartesia"))}
-    assert models["sonic"].rate == pytest.approx(1 * 65e-06)  # 1 credit/char
-    assert models["ink"].rate == pytest.approx(3 * 65e-06)  # 3 credits/second
-    assert models["sonic"].unit == "character"
-    assert models["ink"].unit == "second"
+    for tts in ("sonic-3.6", "sonic-3.5"):
+        assert models[tts].rate == pytest.approx(1 * 65e-06)  # 1 credit/char
+        assert models[tts].unit == "character"
+    for stt in ("ink-2", "ink-whisper"):
+        assert models[stt].rate == pytest.approx(3 * 65e-06)  # 3 credits/second
+        assert models[stt].unit == "second"
+
+
+def test_cartesia_keys_are_model_ids_the_api_accepts():
+    """Bare `sonic` was sunset on 2026-06-01 and `ink` was never an id.
+
+    The key is what budapp sends Cartesia as `model_id`, so a family name here is a model
+    that fails every request.
+    """
+    keys = {m.model for m in CartesiaScraper().extract(fixture("cartesia"))}
+    assert keys == {"sonic-3.6", "sonic-3.5", "ink-2", "ink-whisper"}
+    assert not keys & {"sonic", "ink"}
 
 
 def test_cartesia_rates_are_marked_derived_not_curated():
@@ -128,8 +141,8 @@ def test_cartesia_rates_are_marked_derived_not_curated():
 
 def test_cartesia_records_the_conversion_it_used():
     models = {m.model: m for m in CartesiaScraper().extract(fixture("cartesia"))}
-    assert "per 1M credits" in models["ink"].published_as
-    assert "pro tier" in models["ink"].note
+    assert "per 1M credits" in models["ink-2"].published_as
+    assert "pro tier" in models["ink-2"].note
 
 
 def test_cartesia_refuses_to_guess_without_the_credit_price():
@@ -490,7 +503,10 @@ def test_deepgram_keys_are_the_architecture_names_deepgram_uses():
 
 def test_deepgram_takes_pay_as_you_go_not_growth():
     """Growth ($0.027 for Aura-2) is a volume commitment; Pay As You Go is list."""
-    models = {m.model: m for m in DeepgramTtsScraper().extract(fixture("deepgram_tts"))}
+    accepted, _ = validate_batch(
+        "deepgram", DeepgramTtsScraper().extract(fixture("deepgram_tts")), 2
+    )
+    models = {m.model: m for m in accepted}
     assert models["aura-2"].rate == pytest.approx(0.030 / 1000)
     assert models["aura-2"].rate != pytest.approx(0.027 / 1000)
     assert "Growth plan $0.027" in models["aura-2"].note
@@ -513,3 +529,94 @@ def test_deepgram_does_not_emit_flux_tts():
 def test_deepgram_fails_loudly_without_the_tts_table():
     with pytest.raises(ValueError, match="TTS pricing table changed"):
         DeepgramTtsScraper().extract("<html><body>Contact sales</body></html>")
+
+
+def test_speechmatics_reads_a_rows_own_crossed_out_price_as_list():
+    """Linden 1's row is `"Pro Plan value":"0.30","Crossed-out price":"0.40"`.
+
+    The tooltip says "discounted 25% from a $0.40/hr list rate", so 0.30 is the promotion.
+    Taking the plan value stored a promotional price as list -- a 25% under-bill.
+    """
+    models = {m.model: m for m in SpeechmaticsScraper().extract(fixture("speechmatics"))}
+    linden = models["linden-1"]
+    assert linden.rate == pytest.approx(0.40 / 3600)
+    assert linden.promotional_rate == pytest.approx(0.30 / 3600)
+
+
+def test_speechmatics_slugs_keep_version_dots():
+    """A dotted version like "Linden 1.1" must not become `linden-11`."""
+    from bud_model_catalog.scrapers.vendors.speechmatics import _slug
+
+    assert _slug("Linden 1.1") == "linden-1.1"
+    assert _slug("Batch Melia 1") == "batch-melia-1"
+
+
+# --------------------------------------------------------------------------------- #
+# elevenlabs, deepgram stt, assemblyai
+# --------------------------------------------------------------------------------- #
+
+
+def _accepted(scraper, name):
+    accepted, rejections = validate_batch(
+        scraper.vendor, scraper.extract(fixture(name)), scraper.min_models
+    )
+    assert not rejections, rejections
+    return {m.model: m for m in accepted}
+
+
+def test_elevenlabs_prices_every_family_it_can_name():
+    from bud_model_catalog.scrapers.vendors.elevenlabs import ElevenLabsScraper
+
+    models = _accepted(ElevenLabsScraper(), "elevenlabs")
+    assert {k: (m.unit, round(m.rate, 12)) for k, m in models.items()} == {
+        "eleven_v3": ("character", 0.0001),
+        "eleven_multilingual_v2": ("character", 0.0001),
+        "eleven_flash_v2_5": ("character", 0.00005),
+        "eleven_flash_v2": ("character", 0.00005),
+        "scribe_v2": ("second", round(0.22 / 3600, 12)),
+        "scribe_v2_medical": ("second", round(0.22 / 3600, 12)),
+    }
+
+
+def test_elevenlabs_skips_realtime_and_deprecated_models():
+    """Realtime models are WebSocket-only, and WaaV reaches ElevenLabs over HTTP. Turbo is
+    deprecated in favour of Flash. The fixture carries both cards, so this is a real test."""
+    from bud_model_catalog.scrapers.vendors.elevenlabs import ElevenLabsScraper
+
+    keys = set(_accepted(ElevenLabsScraper(), "elevenlabs"))
+    assert "Scribe v2 Realtime" in fixture("elevenlabs")
+    assert not {k for k in keys if "realtime" in k or "conversational" in k or "turbo" in k}
+
+
+def test_deepgram_stt_reads_pre_recorded_not_streaming():
+    """WaaV calls Deepgram's pre-recorded API. Streaming Nova-3 lists at $0.0077/min and is
+    rendered first on the page; the fixture keeps it, so reading it would fail here."""
+    from bud_model_catalog.scrapers.vendors.deepgram import DeepgramSttScraper
+
+    models = _accepted(DeepgramSttScraper(), "deepgram_stt")
+    assert "0.0077" in fixture("deepgram_stt")
+    assert {k: round(m.rate * 60, 6) for k, m in models.items()} == {
+        "nova-3": 0.0043,
+        "nova-3-general": 0.0043,
+        "whisper-large": 0.0048,
+    }
+
+
+def test_assemblyai_reads_the_async_models_by_their_api_ids():
+    """`best`/`nano` are gone from the API; the ids are what `speech_models` accepts."""
+    from bud_model_catalog.scrapers.vendors.assemblyai import AssemblyAiScraper
+
+    models = _accepted(AssemblyAiScraper(), "assemblyai")
+    assert {k: round(m.rate * 3600, 6) for k, m in models.items()} == {
+        "universal-3-5-pro": 0.21,
+        "universal-2": 0.15,
+    }
+
+
+def test_assemblyai_does_not_read_the_streaming_block():
+    """The streaming "Universal-3.5 Pro Realtime" shares a prefix and costs $0.45/hr."""
+    from bud_model_catalog.scrapers.vendors.assemblyai import AssemblyAiScraper
+
+    assert "Universal-3.5 Pro Realtime" in fixture("assemblyai")
+    models = _accepted(AssemblyAiScraper(), "assemblyai")
+    assert models["universal-3-5-pro"].rate == pytest.approx(0.21 / 3600)

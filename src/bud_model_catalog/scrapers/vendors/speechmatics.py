@@ -23,6 +23,12 @@ lower (Batch Melia 1 renders as $0.129/hr against a $0.24 list). List is what ge
 for the same reason AWS's tier-0 rate is: a promotion expires, and a cost estimate that
 silently assumed one is wrong the day it ends.
 
+One exception inside the JSON itself: a row can carry its own discount. Linden 1's row has
+`"Pro Plan value":"0.30"` and `"Crossed-out price":"0.40"`, with a tooltip saying it is
+"discounted 25% from a $0.40/hr list rate". There the crossed-out figure is the list price
+and the plan value is the promotion, so the adapter reads the pair rather than assuming the
+plan value is always list.
+
 The bolt-ons on the same page (Translation, Summaries, Chapters, Sentiment, Topics) are
 per-feature surcharges rather than models, and are skipped for the same reason AWS's Call
 Analytics and Redaction SKUs are: they are not something a user deploys.
@@ -49,7 +55,8 @@ _SECONDS_PER_HOUR = 3600.0
 
 
 def _slug(line_item: str) -> str:
-    return re.sub(r"[^a-z0-9-]", "", line_item.strip().lower().replace(" ", "-"))
+    # `.` survives: "Linden 1.1" must not become `linden-11`, a different model's name.
+    return re.sub(r"[^a-z0-9.-]", "", line_item.strip().lower().replace(" ", "-"))
 
 
 class SpeechmaticsScraper(VendorScraper):
@@ -74,24 +81,23 @@ class SpeechmaticsScraper(VendorScraper):
         # (Translation, Summaries, Chapters, Sentiment, Topics) are per-feature surcharges
         # on a transcript rather than models a user deploys, so they are excluded for the
         # same reason AWS's Call Analytics and Redaction SKUs are.
-        billable: list[tuple[str, str, str]] = []
-        seen: set[str] = set()
+        billable: list[tuple[str, str, str, str]] = []
         for row in rows:
             category = (row.get("Category") or "").strip()
             line_item = (row.get("Line item") or "").strip()
             value = (row.get("Pro Plan value") or "").strip()
+            crossed = (row.get("Crossed-out price") or "").strip()
             if not line_item or not value or "bolt-on" in category.lower():
                 continue
-            key = _slug(line_item)
-            if key in seen:
-                continue
-            seen.add(key)
-            billable.append((key, category, value))
+            # Every row is returned, repeats included: validate_batch collapses a repeat that
+            # agrees and rejects one that does not, which is the only safe reading of a page
+            # that lists one model at two prices.
+            billable.append((_slug(line_item), category, value, crossed))
 
-        promos = _promotional_rates(html, {key for key, _, _ in billable})
+        promos = _promotional_rates(html, {key for key, _, _, _ in billable})
 
         out: list[ScrapedModel] = []
-        for key, category, value in billable:
+        for key, category, value, crossed in billable:
             if category == "Speech-to-Text models":
                 # Bare numbers, in dollars per hour.
                 try:
@@ -99,6 +105,10 @@ class SpeechmaticsScraper(VendorScraper):
                 except ValueError:
                     continue
                 promo = promos.get(key)
+                crossed_rate = _as_float(crossed)
+                if crossed_rate is not None and crossed_rate > per_hour:
+                    # The row's own discount: the struck-through figure is list.
+                    per_hour, promo = crossed_rate, per_hour
                 discounted = promo if (promo is not None and promo < per_hour) else None
                 out.append(
                     ScrapedModel(
@@ -135,6 +145,13 @@ class SpeechmaticsScraper(VendorScraper):
                     )
                 )
         return out
+
+
+def _as_float(value: str) -> float | None:
+    try:
+        return float(value) if value else None
+    except ValueError:
+        return None
 
 
 def _promotional_rates(html: str, known: set[str]) -> dict[str, float]:

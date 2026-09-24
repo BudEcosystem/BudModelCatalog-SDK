@@ -87,7 +87,6 @@ class GoogleSpeechTtsScraper(VendorScraper):
             raise ValueError("no table rows found; the pricing page structure changed")
 
         out: list[ScrapedModel] = []
-        seen: set[str] = set()
         for row in rows:
             cells = _CELL.findall(row)
             if len(cells) < 2:
@@ -102,11 +101,10 @@ class GoogleSpeechTtsScraper(VendorScraper):
             # The name is the first cell, up to the SKU that follows it.
             label = _strip_tags(cells[0]).split("(sku")[0].strip()
             key = _slug(label)
-            if not key or key in seen:
+            if not key:
                 continue
 
             rate = float(price.group(1))
-            seen.add(key)
             out.append(
                 ScrapedModel(
                     model=key,
@@ -194,7 +192,6 @@ class GoogleSpeechSttScraper(VendorScraper):
             raise ValueError("no tables found; the pricing page structure changed")
 
         out: list[ScrapedModel] = []
-        seen: set[str] = set()
         for table in tables:
             rows = re.findall(r"<tr\b[^>]*>(.*?)</tr>", table, re.S | re.I)
             if not rows:
@@ -212,7 +209,7 @@ class GoogleSpeechSttScraper(VendorScraper):
 
                 label = cells[0]
                 key = _stt_slug(label)
-                if not key or key in seen:
+                if not key:
                     continue
 
                 rate_per_minute = _first_paid_rate(cells[list_index])
@@ -233,7 +230,6 @@ class GoogleSpeechSttScraper(VendorScraper):
                         "columns are being misread"
                     )
 
-                seen.add(key)
                 out.append(
                     ScrapedModel(
                         model=key,

@@ -172,6 +172,26 @@ async def test_a_slow_vendor_is_abandoned_without_holding_up_the_rest():
 
 
 @pytest.mark.asyncio
+async def test_a_slow_vendor_gives_up_its_slot_at_the_vendor_deadline():
+    """httpx's timeout bounds each read, not the request, so a server that dribbles bytes
+    never trips it. Without a per-vendor deadline the slow vendor held its slot until the
+    whole budget ran out, and every vendor queued behind it went down with it."""
+
+    async def dribble(request):  # noqa: ARG001
+        await asyncio.sleep(5)
+        return httpx.Response(200, text="<html/>")
+
+    with respx.mock:
+        respx.get(OTHER_URL).mock(side_effect=dribble)
+        respx.get(GOOD_URL).mock(return_value=httpx.Response(200, text="<html/>"))
+        result = await run(
+            OtherGoodScraper(), GoodScraper(), concurrency=1, vendor_timeout=0.3, total_budget=3
+        )
+    # The slow vendor went first and would have held the only slot for the full budget.
+    assert set(result.data) == {"goodvendor/fast"}
+
+
+@pytest.mark.asyncio
 async def test_the_budget_is_enforced_even_when_every_vendor_hangs():
     async def slow(request):  # noqa: ARG001
         await asyncio.sleep(10)
@@ -277,8 +297,8 @@ async def test_real_adapters_run_against_their_fixtures_through_the_source():
             return_value=httpx.Response(200, text=(FIXTURES / "cartesia.html").read_text())
         )
         result = await run(sm, ca)
-    assert len(result.data) == 9
-    assert result.data["cartesia/ink"]["billing"]["confidence"] == "derived"
+    assert len(result.data) == 7 + 4
+    assert result.data["cartesia/ink-2"]["billing"]["confidence"] == "derived"
     assert result.data["speechmatics/batch-melia-1"]["input_cost_per_second"] == pytest.approx(
         0.24 / 3600
     )
@@ -329,13 +349,46 @@ def scraped(
     )
 
 
-def test_a_model_no_feed_lists_is_added():
+def test_a_model_nothing_else_lists_is_not_published(caplog):
+    """A page refreshes prices; it does not introduce models.
+
+    Such a key has no committed rate to check drift against, so a mis-parse would publish
+    unchecked -- reproduced as a renamed row, "Linden 1.1" at 10x, landing beside the stale
+    "Linden 1" as a second model. New models enter through the curated file.
+    """
     result = CatalogClient._overlay_scraped(
         catalog({"other/model": {"input_cost_per_second": 1e-05}}),
-        scraped("speechmatics/linden-1", 8.3e-05),
+        scraped("speechmatics/linden-1.1", 8.3e-04),
     )
-    assert "speechmatics/linden-1" in result.models
-    assert result.stats.total_output == 2
+    assert "speechmatics/linden-1.1" not in result.models
+    assert result.stats.total_output == 1
+    assert "not published" in caplog.text
+
+
+def test_the_scraped_billing_block_is_merged_not_replaced():
+    """The floor carries rules no page states parseably; a refresh must not drop them.
+
+    Rev AI's `rounding_increment` lived only in the floor, and replacing the whole block
+    on every scrape deleted it from all three Rev AI models.
+    """
+    base = catalog(
+        {
+            "revai/reverb": {
+                "input_cost_per_second": 5.5e-05,
+                "billing": {
+                    "unit": "second",
+                    "confidence": "curated",
+                    "min_billable_units": 15,
+                    "rounding_increment": 1,
+                },
+            }
+        }
+    )
+    result = CatalogClient._overlay_scraped(base, scraped("revai/reverb", 5.6e-05))
+    billing = result.models["revai/reverb"]["billing"]
+    assert billing["rounding_increment"] == 1
+    assert billing["min_billable_units"] == 15
+    assert billing["source"]["url"] == "u"  # the scrape's provenance does replace the floor's
 
 
 def test_a_fresh_price_replaces_the_committed_floor():

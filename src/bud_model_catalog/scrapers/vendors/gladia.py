@@ -53,12 +53,8 @@ class GladiaScraper(VendorScraper):
             raise ValueError("no 'Async at $X /hr' rows found on the Starter plan; page changed")
 
         out: list[ScrapedModel] = []
-        seen: set[str] = set()
         for label, amount in found:
             key = label.strip().lower()
-            if key in seen:
-                continue
-            seen.add(key)
             per_hour = float(amount)
             out.append(
                 ScrapedModel(

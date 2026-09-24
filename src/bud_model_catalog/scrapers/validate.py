@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import logging
 import math
-from collections import Counter
 
 from .base import UNIT_TO_COST_FIELD, ScrapedModel
 
@@ -144,14 +143,27 @@ def validate_batch(
     """
     rejections: list[str] = []
 
-    duplicates = [name for name, n in Counter(m.model for m in models).items() if n > 1]
-    if duplicates:
-        # Two rows claiming the same model means the parser matched something twice, and
-        # which rate wins would be an accident of ordering. Reject the whole vendor: one
-        # duplicated row makes every other row from the same parse suspect.
+    # Pages repeat themselves -- Deepgram renders its price table once as plan cards and
+    # again as a calculator -- so a repeat that says the same thing is collapsed. A repeat
+    # that DISAGREES means the parser matched two different things under one name, and
+    # which rate would win is an accident of ordering. That rejects the whole vendor: one
+    # conflicting row makes every other row from the same parse suspect.
+    #
+    # This is the only place duplicates are resolved. Adapters return every match they find;
+    # one that kept "the first" itself would make this check unreachable, and a page that
+    # reordered its tables would then change the price with nothing rejected.
+    by_model: dict[str, ScrapedModel] = {}
+    conflicts: set[str] = set()
+    for m in models:
+        first = by_model.setdefault(m.model, m)
+        if first is not m and _billing_shape(first) != _billing_shape(m):
+            conflicts.add(m.model)
+    if conflicts:
         return [], [
-            f"{vendor}: duplicate model keys {sorted(duplicates)}; rejecting the whole extraction"
+            f"{vendor}: model keys {sorted(conflicts)} appear with different rates; "
+            "rejecting the whole extraction"
         ]
+    models = list(by_model.values())
 
     accepted: list[ScrapedModel] = []
     for m in models:
@@ -172,6 +184,11 @@ def validate_batch(
         return [], rejections
 
     return accepted, rejections
+
+
+def _billing_shape(m: ScrapedModel) -> tuple[object, ...]:
+    """What two extractions of one model must agree on to be the same price."""
+    return (m.mode, m.unit, m.rate, m.min_billable_units, m.confidence)
 
 
 def exceeds_drift(scraped_rate: float, floor_rate: float, factor: float = MAX_DRIFT_FACTOR) -> bool:

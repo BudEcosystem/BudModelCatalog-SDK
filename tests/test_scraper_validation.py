@@ -146,17 +146,35 @@ def test_a_promotional_rate_below_list_is_fine():
 # --------------------------------------------------------------------------------- #
 
 
-def test_duplicate_keys_reject_the_whole_extraction():
-    """Two rows for one model means the parser matched twice.
+def test_disagreeing_duplicate_keys_reject_the_whole_extraction():
+    """Two rows for one model at different rates means the parser matched two things.
 
-    Which rate wins would be an accident of ordering, and one duplicated row makes every
+    Which rate wins would be an accident of ordering, and one conflicting row makes every
     other row from the same parse suspect -- so none of it is taken.
     """
     accepted, rejections = validate_batch(
         "speechmatics", [model(), model(rate=2.0e-04)], min_models=1
     )
     assert accepted == []
-    assert "duplicate model keys" in rejections[0]
+    assert "different rates" in rejections[0]
+
+
+def test_agreeing_duplicate_keys_collapse_to_one():
+    """Pages repeat tables (Deepgram renders its prices twice); a repeat that agrees is fine."""
+    accepted, rejections = validate_batch(
+        "deepgram", [model(note="first"), model(note="second")], min_models=1
+    )
+    assert rejections == []
+    assert len(accepted) == 1
+    assert accepted[0].note == "first"
+
+
+def test_a_duplicate_differing_only_in_its_minimum_is_a_conflict():
+    """A minimum billable duration is part of the price, not decoration."""
+    accepted, _ = validate_batch(
+        "revai", [model(min_billable_units=15.0), model(min_billable_units=None)], min_models=1
+    )
+    assert accepted == []
 
 
 def test_falling_below_the_floor_takes_nothing():

@@ -34,12 +34,6 @@
 #                   Needs a rendered browser, not an HTTP fetch.
 # resemble       -- the pricing page reached at /pricing/ sells deepfake DETECTION, priced
 #                   per second of analysis. Its TTS rates are somewhere else.
-# elevenlabs     -- 710KB of HTML that contains the pricing table's LABELS
-#                   ("price_per_1k_characters": "Price per 1K characters") and none of its
-#                   values, which render client-side. What it does state is credits, marked
-#                   "approximate", with per-model variation given as a RANGE ("between 0.5
-#                   and 1 credit per character") and no credit-to-dollar conversion. Even
-#                   with a browser that is a range, not a rate.
 # smallest       -- prices voice-agent LAYERS, approximately: "Speech to Text Layer
 #                   ~$0.009/minutes", "Text to Speech Layer ~$0.09/minutes". The only
 #                   per-model figures on the page belong to third-party LLMs (ChatGPT 4.1
@@ -219,7 +213,7 @@ speechmatics:
         note: List $0.80/hr; 0.80 / 3600. Page currently displays a promotional $0.43/hr.
   linden-1:
     mode: audio_transcription
-    input_cost_per_second: 0.00008333333333333333
+    input_cost_per_second: 0.00011111111111111112
     billing:
       unit: second
       meter: input_audio_seconds
@@ -227,8 +221,11 @@ speechmatics:
       confidence: curated
       source:
         url: https://www.speechmatics.com/pricing
-        checked_on: "2026-09-23"
-        note: List $0.30/hr; 0.30 / 3600. Page shows it discounted from $0.21/hr to $0.16/hr.
+        checked_on: "2026-09-24"
+        note: >-
+          List $0.40/hr; 0.40 / 3600. The row's own "Crossed-out price" is 0.40 and its plan
+          value 0.30 is a promotion ("Currently discounted 25% from a $0.40/hr list rate").
+          This entry previously stored the $0.30 promotion as if it were list.
   text-to-speech:
     mode: audio_speech
     input_cost_per_character: 0.000011
@@ -257,7 +254,11 @@ cartesia:
   # `confidence: derived` is load-bearing. The arithmetic is an assumption about how
   # Cartesia converts credits, and it breaks the moment they reprice a tier without
   # repricing credits. A consumer should show it and not invoice from it unsupervised.
-  sonic:
+  # Keyed by the model ids Cartesia's API accepts, not by family name: bare `sonic` was sunset
+  # on 2026-06-01 and `ink` was never an id, so the `sonic`/`ink` keys this file used to
+  # carry failed every request. The credit conversions are per family, so every id in a
+  # family carries the family's rate (docs.cartesia.ai model pages, read 2026-09-24).
+  sonic-3.6:
     mode: audio_speech
     input_cost_per_character: 0.000065
     billing:
@@ -267,11 +268,25 @@ cartesia:
       confidence: derived
       source:
         url: https://cartesia.ai/pricing
-        checked_on: "2026-09-23"
+        checked_on: "2026-09-24"
         note: >-
           1 credit per character x $65 per 1M credits (pro tier) = 6.5e-05/char. Startup
           ($45/1M) and Scale ($38/1M) give 4.5e-05 and 3.8e-05.
-  ink:
+  sonic-3.5:
+    mode: audio_speech
+    input_cost_per_character: 0.000065
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: derived
+      source:
+        url: https://cartesia.ai/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          1 credit per character x $65 per 1M credits (pro tier) = 6.5e-05/char. Startup
+          ($45/1M) and Scale ($38/1M) give 4.5e-05 and 3.8e-05.
+  ink-2:
     mode: audio_transcription
     input_cost_per_second: 0.000195
     billing:
@@ -281,7 +296,23 @@ cartesia:
       confidence: derived
       source:
         url: https://cartesia.ai/pricing
-        checked_on: "2026-09-23"
+        checked_on: "2026-09-24"
+        note: >-
+          3 credits per second x $65 per 1M credits (pro tier) = 1.95e-04/s. Cross-check:
+          the page states Ink costs $0.39/hr on Scale; 3 x 3600 x $38/1M = $0.41/hr, a 5%
+          gap, so the conversion is close but not exact -- hence `derived`.
+
+  ink-whisper:
+    mode: audio_transcription
+    input_cost_per_second: 0.000195
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: derived
+      source:
+        url: https://cartesia.ai/pricing
+        checked_on: "2026-09-24"
         note: >-
           3 credits per second x $65 per 1M credits (pro tier) = 1.95e-04/s. Cross-check:
           the page states Ink costs $0.39/hr on Scale; 3 x 3600 x $38/1M = $0.41/hr, a 5%
@@ -518,3 +549,84 @@ deepgram:
         checked_on: "2026-09-24"
         note: >-
           Published as $0.03/1k characters. Pay As You Go $0.03 per 1k characters; 0.03 / 1000. Growth plan $0.027/1k. Priced per family; applies to every voice in it.
+
+elevenlabs:
+  # GAPS ONLY. LiteLLM supplies eleven_v3, eleven_multilingual_v2 and scribe_v2 (the scraper
+  # refreshes those in place); these are the models it does not list at all. Flash is the
+  # family most ElevenLabs TTS traffic goes to. Keyed by the `model_id` the API accepts
+  # (elevenlabs.io/docs/models, read 2026-09-24); the Turbo ids are deprecated in favour of
+  # Flash and are not listed. Scraped by scrapers/vendors/elevenlabs.py; these are the
+  # fallback. The per-1K rate is the same on every plan.
+  eleven_flash_v2_5:
+    mode: audio_speech
+    input_cost_per_character: 0.00005
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://elevenlabs.io/pricing/api
+        checked_on: "2026-09-24"
+        note: >-
+          'Flash / Turbo Text to Speech' card, $0.05 per 1K characters; 0.05 / 1000.
+  eleven_flash_v2:
+    mode: audio_speech
+    input_cost_per_character: 0.00005
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://elevenlabs.io/pricing/api
+        checked_on: "2026-09-24"
+        note: >-
+          'Flash / Turbo Text to Speech' card, $0.05 per 1K characters; 0.05 / 1000. English-only sibling of eleven_flash_v2_5.
+  scribe_v2_medical:
+    mode: audio_transcription
+    input_cost_per_second: 0.00006111111111111112
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://elevenlabs.io/pricing/api
+        checked_on: "2026-09-24"
+        note: >-
+          'Scribe v2 Medical Speech to Text' card, $0.22 per hour; 0.22 / 3600.
+
+assemblyai:
+  # REPLACES LiteLLM's `best` and `nano`, which AssemblyAI's API no longer accepts: the
+  # transcript API takes `speech_models` from {universal-3-5-pro, universal-2}
+  # (assemblyai.com/docs/api-reference/transcripts/submit, read 2026-09-24), and the SDK now
+  # drops the two retired keys. Async (pre-recorded) rates, which is the API WaaV calls.
+  # Streaming, Sync and Dictation are separate products at separate prices and are not
+  # listed. Scraped by scrapers/vendors/assemblyai.py; these are the fallback.
+  universal-3-5-pro:
+    mode: audio_transcription
+    input_cost_per_second: 0.00005833333333333333
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.assemblyai.com/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Universal-3.5 Pro, async, Pay as you go $0.21/hr; 0.21 / 3600.
+  universal-2:
+    mode: audio_transcription
+    input_cost_per_second: 0.00004166666666666667
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://www.assemblyai.com/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Universal-2, async, Pay as you go $0.15/hr; 0.15 / 3600.

@@ -125,7 +125,7 @@ def test_a_missing_file_degrades_instead_of_raising(tmp_path):
         ("speechmatics/batch-enhanced", 0.75),
         ("speechmatics/real-time-standard", 0.45),
         ("speechmatics/real-time-enhanced", 0.80),
-        ("speechmatics/linden-1", 0.30),
+        ("speechmatics/linden-1", 0.40),
     ],
 )
 def test_the_stored_rate_converts_back_to_the_published_figure(loaded, key, published_per_hour):
@@ -179,15 +179,28 @@ def test_the_aws_transcribe_prefix_is_stripped_under_its_tensorzero_name():
     )
 
 
-#: Vendors a feed covers only partly, and the mode it does not supply. A curated entry for a
-#: fed vendor is allowed ONLY here: it fills a gap the feed leaves rather than curating the
-#: same thing in parallel. Deepgram's STT comes from LiteLLM, which carries none of its TTS --
-#: all 42 LiteLLM Deepgram entries are audio_transcription.
-PARTIAL_FEED_GAPS = frozenset({("deepgram", "audio_speech")})
+#: Models of a feed-covered vendor that the feed does not list. A curated entry for a fed
+#: vendor is allowed ONLY here: it fills a gap the feed leaves rather than curating the same
+#: thing in parallel. Named model by model, because coverage stopped being all-or-nothing
+#: per mode: LiteLLM has ElevenLabs' Multilingual and Scribe v2 but not Flash.
+FEED_GAPS = frozenset(
+    {
+        # LiteLLM carries none of Deepgram's TTS; all its Deepgram entries are STT.
+        ("deepgram", "aura"),
+        ("deepgram", "aura-2"),
+        # Flash is absent from LiteLLM, as is the medical Scribe.
+        ("elevenlabs", "eleven_flash_v2_5"),
+        ("elevenlabs", "eleven_flash_v2"),
+        ("elevenlabs", "scribe_v2_medical"),
+        # LiteLLM's AssemblyAI entries are the retired best/nano, which the SDK drops.
+        ("assemblyai", "universal-3-5-pro"),
+        ("assemblyai", "universal-2"),
+    }
+)
 
 
 def test_curated_vendors_do_not_collide_with_live_feed_providers(raw):
-    """A feed-covered vendor is curated only in a mode the feed does not supply.
+    """A feed-covered vendor is curated only for models the feed does not supply.
 
     This used to be vendor-level -- "a vendor a feed covers should be dropped from this
     file" -- which was right while coverage was all-or-nothing. Deepgram broke that: LiteLLM
@@ -200,10 +213,11 @@ def test_curated_vendors_do_not_collide_with_live_feed_providers(raw):
     for vendor, models in raw.items():
         if vendor not in covered:
             continue
-        for model, entry in models.items():
-            assert (vendor, entry["mode"]) in PARTIAL_FEED_GAPS, (
-                f"{vendor}/{model} is {entry['mode']}, which LiteLLM already supplies for "
-                f"{vendor}; delete it from the curated file"
+        for model in models:
+            assert (vendor, model) in FEED_GAPS, (
+                f"{vendor}/{model}: {vendor} is covered by LiteLLM, so a curated entry is only "
+                "allowed for a model LiteLLM does not list -- add it to FEED_GAPS with the "
+                "reason, or delete it from the curated file"
             )
 
 
@@ -265,7 +279,10 @@ def test_a_live_feed_entry_wins_over_a_curated_one():
     ("key", "published_per_1k_chars"),
     [
         ("speechmatics/text-to-speech", 0.011),
-        ("cartesia/sonic", 0.065),  # 1 credit/char at $65 per 1M credits
+        ("cartesia/sonic-3.6", 0.065),  # 1 credit/char at $65 per 1M credits
+        ("cartesia/sonic-3.5", 0.065),
+        ("elevenlabs/eleven_flash_v2_5", 0.05),
+        ("elevenlabs/eleven_flash_v2", 0.05),
     ],
 )
 def test_per_character_rates_convert_back(loaded, key, published_per_1k_chars):
@@ -278,7 +295,8 @@ def test_cartesias_stt_rate_matches_its_own_credit_arithmetic(loaded):
     Cartesia publishes no per-unit price, only the conversions. Recomputing them here means a
     hand-typo in the YAML fails a test rather than becoming a bill.
     """
-    assert loaded["cartesia/ink"]["input_cost_per_second"] == pytest.approx(3 * 65e-06)
+    for key in ("cartesia/ink-2", "cartesia/ink-whisper"):
+        assert loaded[key]["input_cost_per_second"] == pytest.approx(3 * 65e-06)
 
 
 def test_only_credit_based_vendors_are_marked_derived(loaded):

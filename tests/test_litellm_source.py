@@ -256,9 +256,9 @@ async def test_voice_providers_are_included(config):
             "litellm_provider": "elevenlabs",
             "mode": "audio_speech",
         },
-        "assemblyai/best": {
-            "input_cost_per_second": 3.333e-05,
-            "litellm_provider": "assemblyai",
+        "elevenlabs/scribe_v2": {
+            "input_cost_per_second": 6.111e-05,
+            "litellm_provider": "elevenlabs",
             "mode": "audio_transcription",
         },
         "aws_polly/neural": {
@@ -280,7 +280,7 @@ async def test_voice_providers_are_included(config):
     assert set(result.data) == {
         "deepgram/nova-3",
         "elevenlabs/eleven_multilingual_v2",
-        "assemblyai/best",
+        "elevenlabs/scribe_v2",
         "aws_polly/neural",
         "groq/whisper-large-v3",
     }
@@ -290,3 +290,67 @@ async def test_voice_providers_are_included(config):
     assert entry["metadata"]["original_key"] == "deepgram/nova-3"
     assert entry["mode"] == "audio_transcription"
     assert entry["input_cost_per_second"] == 7.167e-05
+
+
+@pytest.mark.asyncio
+async def test_a_collision_merges_the_loser_into_the_gaps(config):
+    """LiteLLM spreads one model's facts across both keys; keeping one wholesale lost the rest.
+
+    Observed: `vertex_ai/gemini-3-pro-image` won and dropped the unprefixed entry's
+    modalities and its $0.014 search-grounding price.
+    """
+    data = {
+        "gemini-3-pro-image": {
+            "litellm_provider": "vertex_ai-language-models",
+            "mode": "image_generation",
+            "input_cost_per_token": 9.9e-06,
+            "supported_modalities": ["text", "image"],
+            "search_context_cost_per_query": {"search_context_size_low": 0.014},
+        },
+        "vertex_ai/gemini-3-pro-image": {
+            "litellm_provider": "vertex_ai",
+            "mode": "image_generation",
+            "input_cost_per_token": 2e-06,
+        },
+    }
+    with respx.mock:
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, json=data))
+        result = await LiteLLMSource(config).fetch()
+
+    entry = result.data["vertex_ai-gemini-models/gemini-3-pro-image"]
+    assert entry["input_cost_per_token"] == 2e-06  # the canonical entry wins what it has
+    assert entry["supported_modalities"] == ["text", "image"]  # the other fills the gap
+    assert entry["search_context_cost_per_query"] == {"search_context_size_low": 0.014}
+    assert entry["metadata"]["original_key"] == "vertex_ai/gemini-3-pro-image"
+    assert entry["metadata"]["merged_from"] == "gemini-3-pro-image"
+
+
+@pytest.mark.asyncio
+async def test_every_vertex_gemini_provider_is_read(config):
+    """Vertex files Gemini under three LiteLLM providers; only one used to be mapped."""
+    data = {
+        "vertex_ai/gemini-3.5-transcribe": {
+            "litellm_provider": "vertex_ai",
+            "mode": "audio_transcription",
+        },
+        "gemini-embedding-001": {
+            "litellm_provider": "vertex_ai-embedding-models",
+            "mode": "embedding",
+        },
+        "gemini-2.5-pro": {"litellm_provider": "vertex_ai-language-models", "mode": "chat"},
+        # Same providers, not Gemini: must stay out of `vertex_ai-gemini-models`.
+        "vertex_ai/xai/grok-4.3": {"litellm_provider": "vertex_ai", "mode": "chat"},
+        "text-embedding-005": {
+            "litellm_provider": "vertex_ai-embedding-models",
+            "mode": "embedding",
+        },
+    }
+    with respx.mock:
+        respx.get(TEST_URL).mock(return_value=httpx.Response(200, json=data))
+        result = await LiteLLMSource(config).fetch()
+
+    assert set(result.data) == {
+        "vertex_ai-gemini-models/gemini-3.5-transcribe",
+        "vertex_ai-gemini-models/gemini-embedding-001",
+        "vertex_ai-gemini-models/gemini-2.5-pro",
+    }

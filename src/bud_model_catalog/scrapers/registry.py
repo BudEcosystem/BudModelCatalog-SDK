@@ -25,8 +25,10 @@ list doubles as the answer to "which vendors do we scrape".
 from __future__ import annotations
 
 from .base import VendorScraper
+from .vendors.assemblyai import AssemblyAiScraper
 from .vendors.cartesia import CartesiaScraper
-from .vendors.deepgram import DeepgramTtsScraper
+from .vendors.deepgram import DeepgramSttScraper, DeepgramTtsScraper
+from .vendors.elevenlabs import ElevenLabsScraper
 from .vendors.gladia import GladiaScraper
 from .vendors.google_speech import GoogleSpeechSttScraper, GoogleSpeechTtsScraper
 from .vendors.revai import RevAiScraper
@@ -43,6 +45,9 @@ SCRAPERS: tuple[type[VendorScraper], ...] = (
     GoogleSpeechTtsScraper,
     GoogleSpeechSttScraper,
     DeepgramTtsScraper,
+    DeepgramSttScraper,
+    ElevenLabsScraper,
+    AssemblyAiScraper,
 )
 
 

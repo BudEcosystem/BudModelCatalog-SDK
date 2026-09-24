@@ -147,7 +147,20 @@ class ScrapedPricingSource(BaseSource):
 
             async def run(scraper: VendorScraper) -> ScrapeOutcome:
                 async with semaphore:
-                    return await self._scrape_one(client, scraper)
+                    # httpx's timeout bounds each socket read, not the request: a server
+                    # dribbling one byte a second never trips it, and holds its slot until
+                    # the whole-source budget ends -- taking every vendor queued behind it
+                    # down too. This is the per-vendor ceiling the constant promises.
+                    try:
+                        return await asyncio.wait_for(
+                            self._scrape_one(client, scraper), timeout=self._vendor_timeout
+                        )
+                    except (asyncio.TimeoutError, TimeoutError):
+                        return ScrapeOutcome(
+                            vendor=scraper.vendor,
+                            url=scraper.url,
+                            error=f"timed out after {self._vendor_timeout:.0f}s",
+                        )
 
             tasks = [asyncio.create_task(run(s)) for s in self._scrapers]
             try:

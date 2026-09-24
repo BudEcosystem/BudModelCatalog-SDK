@@ -128,7 +128,8 @@ class CatalogClient:
             logger.warning("Merge produced no models; skipping scraped overlay")
             return result
 
-        added = updated = 0
+        updated = 0
+        unknown: list[str] = []
         for key, entry in scraped.data.items():
             field = next((f for f in COST_FIELDS if f in entry), None)
             if field is None:  # pragma: no cover - the source always sets one
@@ -137,8 +138,12 @@ class CatalogClient:
 
             existing = result.models.get(key)
             if existing is None:
-                result.models[key] = entry
-                added += 1
+                # A page can refresh a price; it cannot introduce a model. A key nothing
+                # else lists has no committed rate to check drift against, so a mis-parse
+                # would publish unchecked -- and a renamed row ("Linden 1" -> "Linden 1.1")
+                # would publish as a second model beside the stale first one. New models
+                # enter through curated_voice_pricing.yaml, where a person names them.
+                unknown.append(key)
                 continue
 
             existing_billing = existing.get("billing") or {}
@@ -187,13 +192,22 @@ class CatalogClient:
                 # The unit itself changed, which only the billing block can express.
                 del existing[other]
             existing[field] = new_rate
-            existing["billing"] = entry["billing"]
+            # Merged, not replaced. An adapter only knows what its page says, and the floor
+            # carries rules no page states in a parseable way -- Rev AI's per-second
+            # rounding_increment among them. Replacing the block dropped those silently.
+            existing["billing"] = {**existing_billing, **entry["billing"]}
             existing.setdefault("metadata", {}).update(entry.get("metadata") or {})
             updated += 1
 
-        if added or updated:
-            result.stats.total_output = len(result.models)
-            logger.info("Scraped pricing: %d entries added, %d refreshed", added, updated)
+        if unknown:
+            logger.warning(
+                "Scraped %d price(s) for models no feed or curated entry lists, not published: "
+                "%s. Add them to curated_voice_pricing.yaml if they are real models.",
+                len(unknown),
+                sorted(unknown),
+            )
+        if updated:
+            logger.info("Scraped pricing: %d refreshed", updated)
         return result
 
     @staticmethod

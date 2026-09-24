@@ -80,7 +80,6 @@ class RevAiScraper(VendorScraper):
 
         bounds = list(zip(starts, starts[1:] + [len(html)], strict=True))
         out: list[ScrapedModel] = []
-        seen: set[str] = set()
         for start, end in bounds:
             block = html[start:end]
 
@@ -98,7 +97,7 @@ class RevAiScraper(VendorScraper):
             if not name.endswith("Transcription"):
                 continue
             key = _slug(name.removesuffix("Transcription"))
-            if not key or key in _NOT_A_MODEL or key in seen:
+            if not key or key in _NOT_A_MODEL:
                 continue
 
             per = per_match.group(1).strip().lower()
@@ -108,7 +107,6 @@ class RevAiScraper(VendorScraper):
                 # catalog can express, so the model is skipped rather than mis-stored.
                 continue
 
-            seen.add(key)
             minimum_match = _MINIMUM.search(block)
             minimum = float(minimum_match.group(1)) if minimum_match else None
             value = float(price_match.group(1))
