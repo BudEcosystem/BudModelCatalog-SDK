@@ -21,7 +21,6 @@ from bud_model_catalog.scrapers.vendors.google_speech import (
     GoogleSpeechTtsScraper,
 )
 from bud_model_catalog.scrapers.vendors.revai import RevAiScraper
-from bud_model_catalog.scrapers.vendors.speechify import SpeechifyScraper
 from bud_model_catalog.scrapers.vendors.speechmatics import SpeechmaticsScraper
 from bud_model_catalog.sources.curated import CuratedSource
 
@@ -326,54 +325,6 @@ def test_google_model_keys_drop_the_category_suffix_but_not_the_product_name():
 def test_google_fails_loudly_without_a_table():
     with pytest.raises(ValueError, match="no table rows"):
         GoogleSpeechTtsScraper().extract("<html><body>Pricing</body></html>")
-
-
-# --------------------------------------------------------------------------------- #
-# speechify: one metered rate, and a competitor table that must not be read
-# --------------------------------------------------------------------------------- #
-
-
-def test_speechify_takes_the_entry_plan_rate():
-    extracted = SpeechifyScraper().extract(fixture("speechify"))
-    assert len(extracted) == 1
-    assert extracted[0].model == "text-to-speech"
-    # Starter $10 per 1M is list; Pro $8 and Scale $6 are volume tiers.
-    assert extracted[0].rate == pytest.approx(10 / 1_000_000)
-
-
-def test_speechify_does_not_read_the_third_party_comparison_table():
-    """The most dangerous thing on any of these pages.
-
-    Speechify's page lists Artificial Analysis estimates of *competitors'* prices per
-    million characters -- Inworld at $20.80, Alibaba at $27.60, Cartesia at $49.00, VUI Labs
-    at $80.00. Reading any of those as a Speechify rate would be wrong; reading Cartesia's
-    off Speechify's marketing page would be absurd. The fixture keeps that table so this
-    assertion means something.
-    """
-    text = fixture("speechify")
-    assert "Artificial Analysis estimates" in text, "fixture no longer has the comparison"
-    for competitor_rate in (6.60, 20.80, 27.60, 49.00, 80.00):
-        per_character = competitor_rate / 1_000_000
-        for m in SpeechifyScraper().extract(text):
-            assert m.rate != pytest.approx(per_character), (
-                f"picked up ${competitor_rate} from the third-party comparison table"
-            )
-
-
-def test_speechify_records_the_cheaper_plans_without_using_them():
-    note = SpeechifyScraper().extract(fixture("speechify"))[0].note
-    assert "$6" in note and "$8" in note
-    assert "per 1M characters" in note
-
-
-def test_speechify_fails_loudly_when_the_overage_rate_is_gone():
-    """Including when only the comparison table survives a redesign -- which would
-    otherwise be the worst case: a page full of plausible per-million-character numbers
-    that all belong to other companies."""
-    with pytest.raises(ValueError, match="plan overage"):
-        SpeechifyScraper().extract(
-            "<p>Artificial Analysis estimates Cartesia Sonic 3.6 at $49.00 per million characters.</p>"
-        )
 
 
 # --------------------------------------------------------------------------------- #

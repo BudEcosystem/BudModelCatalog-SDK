@@ -29,7 +29,6 @@ from .vendors.cartesia import CartesiaScraper
 from .vendors.gladia import GladiaScraper
 from .vendors.google_speech import GoogleSpeechSttScraper, GoogleSpeechTtsScraper
 from .vendors.revai import RevAiScraper
-from .vendors.speechify import SpeechifyScraper
 from .vendors.speechmatics import SpeechmaticsScraper
 
 #: Every adapter. A list rather than a dict keyed by vendor, because one vendor can need
@@ -42,7 +41,6 @@ SCRAPERS: tuple[type[VendorScraper], ...] = (
     GladiaScraper,
     GoogleSpeechTtsScraper,
     GoogleSpeechSttScraper,
-    SpeechifyScraper,
 )
 
 

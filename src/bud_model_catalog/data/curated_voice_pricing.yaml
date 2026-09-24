@@ -46,6 +46,15 @@
 #                   $0.045/min), so extracting model rates would mean attributing OpenAI's
 #                   prices to smallest. Its own models (Lightning, Lightning-large) are
 #                   never priced by name.
+# speechify      -- meters per character across all voices at a per-plan rate ($10 per 1M on
+#                   the entry plan) and names no priced model anywhere. A rate exists, but
+#                   there is no model to attach it to: an entry keyed `text-to-speech` would
+#                   be a label this project invented, and it would appear in budapp's model
+#                   list as something nobody can actually deploy. Same objection that had
+#                   fireworks and together_ai withdrawn.
+#                   Note for whoever revisits this: its pricing page also carries
+#                   third-party estimates of COMPETITORS' rates, Cartesia at $49/1M among
+#                   them, so a future adapter must not match on "$X per million characters".
 # wellsaid, acapela, cereproc
 #                -- not yet checked. Add them the same way, one verified page at a time.
 # the regional vendors (iflytek, naver_clova, sberdevices, tinkoff, viettel_ai, zalo_ai,
@@ -471,25 +480,3 @@ google_speech:
         checked_on: "2026-09-24"
         note: >-
           Published as $0.024 per minute. Speech Recognition (without data logging); list price $0.024/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
-speechify:
-  # A single metered rate rather than a per-model price: Speechify charges per character
-  # across all voices, $10 per 1M on the entry plan ($8 Pro, $6 Scale are volume tiers, so
-  # the entry rate is list). `text-to-speech` is a stand-in key following the label
-  # Speechmatics' own table uses -- NOT a deployable model name.
-  #
-  # Its page also carries third-party estimates of competitors' rates, Cartesia at $49/1M
-  # among them. The adapter anchors on the plan-overage phrasing so it cannot read those;
-  # a test feeds the comparison table in and asserts nothing comes out.
-  text-to-speech:
-    mode: audio_speech
-    input_cost_per_character: 0.00001
-    billing:
-      unit: character
-      meter: input_characters
-      currency: USD
-      confidence: curated
-      source:
-        url: https://speechify.com/text-to-speech-api/
-        checked_on: "2026-09-24"
-        note: >-
-          Published as $10 per 1M characters. Entry plan $10 per 1M characters; 10 / 1e6. Metered by character across all voices rather than per model. Higher plans are cheaper: $6, $8 per 1M.
