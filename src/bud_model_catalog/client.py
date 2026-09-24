@@ -24,11 +24,19 @@ import logging
 from .config import CatalogConfig
 from .merger import merge
 from .models import CatalogResult
+from .scrapers.base import UNIT_TO_COST_FIELD
+from .scrapers.validate import exceeds_drift
 from .sources.ai_models import AiModelsSource
-from .sources.base import FetchResult
+from .sources.base import BaseSource, FetchResult
+from .sources.cloud_pricing import AwsPricingSource, AzurePricingSource, apply_pricing_overlay
+from .sources.curated import CuratedSource
 from .sources.litellm import LiteLLMSource
+from .sources.scraped import ScrapedPricingSource
 
 logger = logging.getLogger(__name__)
+
+#: The cost fields a scraped entry can carry, so the overlay can spot a unit change.
+COST_FIELDS = tuple(UNIT_TO_COST_FIELD.values())
 
 
 class CatalogClient:
@@ -43,6 +51,10 @@ class CatalogClient:
         self._config = config or CatalogConfig()
         self._litellm_source = LiteLLMSource(self._config)
         self._ai_models_source = AiModelsSource(self._config)
+        self._curated_source = CuratedSource()
+        self._aws_pricing_source = AwsPricingSource(self._config)
+        self._azure_pricing_source = AzurePricingSource(self._config)
+        self._scraped_source = ScrapedPricingSource(self._config)
 
     async def fetch_catalog(self) -> CatalogResult:
         """Fetch from both sources concurrently, merge, return result.
@@ -60,12 +72,203 @@ class CatalogClient:
                 )
                 return None
 
-        litellm_result, ai_models_result = await asyncio.gather(
+        async def _safe(source: BaseSource, label: str) -> FetchResult | None:
+            try:
+                return await source.fetch()
+            except Exception:
+                logger.warning("%s fetch failed; continuing without it", label, exc_info=True)
+                return None
+
+        (
+            litellm_result,
+            ai_models_result,
+            aws_result,
+            azure_result,
+            scraped_result,
+        ) = await asyncio.gather(
             self._litellm_source.fetch(),
             _safe_ai_models(),
+            _safe(self._aws_pricing_source, "AWS pricing"),
+            _safe(self._azure_pricing_source, "Azure pricing"),
+            _safe(self._scraped_source, "scraped pricing"),
         )
 
-        return merge(litellm_result, ai_models_result, self._config)
+        # Precedence, weakest first. Curated is the committed floor; a scraped page is
+        # fresher than that floor so it wins; a vendor's own price API beats any page, so
+        # the cloud overlay goes last.
+        result = merge(litellm_result, ai_models_result, self._config)
+        result = self._overlay_curated(result)
+        result = self._overlay_scraped(result, scraped_result)
+        return self._overlay_cloud_pricing(result, aws_result, azure_result)
+
+    @staticmethod
+    def _overlay_scraped(result: CatalogResult, scraped: FetchResult | None) -> CatalogResult:
+        """Apply freshly scraped vendor prices over the committed floor.
+
+        Nobody reviews these between the page changing and bud-connect serving the number,
+        so this method is where the last few guards live:
+
+        * an entry already priced by a vendor's own API is never touched
+        * a rate that has moved by more than :data:`MAX_DRIFT_FACTOR` from the floor is
+          rejected as an extraction bug, because vendors reprice by factors of two, not of
+          ten, while a parser reading per-hour as per-second is wrong by 3600
+        * a disagreement is always logged with both numbers, since the likeliest cause is a
+          parse error rather than a repricing
+
+        A rejected price leaves the curated floor in place, which is why scraping can only
+        ever make the catalog staler, never wrong.
+        """
+        if scraped is None or not scraped.data:
+            return result
+        if not result.models:
+            # Same reasoning as the curated overlay: an empty merge means upstream failed,
+            # and bud-connect reads "absent from this run" as "deactivate". Publishing nine
+            # scraped voice models over an empty catalog would look like a successful sync
+            # and retire everything else.
+            logger.warning("Merge produced no models; skipping scraped overlay")
+            return result
+
+        updated = 0
+        unknown: list[str] = []
+        for key, entry in scraped.data.items():
+            field = next((f for f in COST_FIELDS if f in entry), None)
+            if field is None:  # pragma: no cover - the source always sets one
+                continue
+            new_rate = entry[field]
+
+            existing = result.models.get(key)
+            if existing is None:
+                # A page can refresh a price; it cannot introduce a model. A key nothing
+                # else lists has no committed rate to check drift against, so a mis-parse
+                # would publish unchecked -- and a renamed row ("Linden 1" -> "Linden 1.1")
+                # would publish as a second model beside the stale first one. New models
+                # enter through curated_voice_pricing.yaml, where a person names them.
+                unknown.append(key)
+                continue
+
+            existing_billing = existing.get("billing") or {}
+            if existing_billing.get("confidence") == "authoritative":
+                # The vendor publishes a price feed for this model; a marketing page does
+                # not get to override it.
+                continue
+
+            other = next((f for f in COST_FIELDS if f != field), None)
+            if other in existing and not existing_billing:
+                # A live feed priced this model on a different basis and said nothing about
+                # billing. Overwriting would leave two cost fields disagreeing about what
+                # the request costs, so the mapping needs a human, not a refresh.
+                logger.warning(
+                    "Scraped %s in %s but the existing entry is priced per %s with no "
+                    "billing block; leaving it alone",
+                    key,
+                    field,
+                    other,
+                )
+                continue
+
+            old_rate = existing.get(field)
+            if isinstance(old_rate, (int, float)) and exceeds_drift(new_rate, float(old_rate)):
+                logger.error(
+                    "Rejecting scraped rate for %s: %.6g -> %.6g is a factor of %.0f, which "
+                    "is an extraction bug rather than a repricing. Keeping the committed "
+                    "rate; check the unit conversion in the adapter.",
+                    key,
+                    old_rate,
+                    new_rate,
+                    max(new_rate / old_rate, old_rate / new_rate) if old_rate else 0,
+                )
+                continue
+
+            if isinstance(old_rate, (int, float)) and abs(float(old_rate) - new_rate) > 1e-12:
+                logger.info(
+                    "Scraped price change for %s: %.6g -> %.6g per %s",
+                    key,
+                    old_rate,
+                    new_rate,
+                    entry["billing"]["unit"],
+                )
+
+            if other in existing:
+                # The unit itself changed, which only the billing block can express.
+                del existing[other]
+            existing[field] = new_rate
+            # Merged, not replaced. An adapter only knows what its page says, and the floor
+            # carries rules no page states in a parseable way -- Rev AI's per-second
+            # rounding_increment among them. Replacing the block dropped those silently.
+            existing["billing"] = {**existing_billing, **entry["billing"]}
+            existing.setdefault("metadata", {}).update(entry.get("metadata") or {})
+            updated += 1
+
+        if unknown:
+            logger.warning(
+                "Scraped %d price(s) for models no feed or curated entry lists, not published: "
+                "%s. Add them to curated_voice_pricing.yaml if they are real models.",
+                len(unknown),
+                sorted(unknown),
+            )
+        if updated:
+            logger.info("Scraped pricing: %d refreshed", updated)
+        return result
+
+    @staticmethod
+    def _overlay_cloud_pricing(
+        result: CatalogResult,
+        aws_result: FetchResult | None,
+        azure_result: FetchResult | None,
+    ) -> CatalogResult:
+        """Attach vendor-published billing blocks to entries a feed already listed.
+
+        Best-effort on purpose. These are the only self-refreshing speech prices in the
+        catalog, but they are also two more network calls on a nightly sync whose failure
+        mode is bud-connect retiring models. Losing a billing block is recoverable on the
+        next run; losing the catalog is not.
+        """
+        enriched = 0
+        for fetched in (aws_result, azure_result):
+            if fetched is not None:
+                enriched += apply_pricing_overlay(result.models, fetched.data)
+
+        if enriched:
+            logger.info("Attached %d authoritative cloud billing blocks", enriched)
+        return result
+
+    def _overlay_curated(self, result: CatalogResult) -> CatalogResult:
+        """Add hand-curated voice prices for vendors no feed covers.
+
+        Additive only: a key already present from LiteLLM wins and the curated entry is
+        dropped with a warning. LiteLLM is refreshed upstream continuously while this file
+        is refreshed by someone remembering to; letting the stale one silently overwrite
+        the live one is the wrong default, and a collision means the curated entry has
+        become redundant and should be deleted.
+        """
+        if not result.models:
+            # An empty merge means the upstream fetch failed or returned nothing, and
+            # bud-connect's seeder treats "not in this run" as "deactivate". Overlaying
+            # here would turn a total outage into a catalog of five voice models that
+            # looks like a successful sync, and every other model would be retired on the
+            # strength of it. Fail visibly empty instead.
+            logger.warning("Merge produced no models; skipping curated overlay")
+            return result
+
+        curated = self._curated_source.load()
+
+        added = 0
+        for key, entry in curated.data.items():
+            if key in result.models:
+                logger.warning(
+                    "Curated price for %s is shadowed by a live feed entry; delete it from "
+                    "curated_voice_pricing.yaml",
+                    key,
+                )
+                continue
+            result.models[key] = entry
+            added += 1
+
+        if added:
+            result.stats.total_output = len(result.models)
+            logger.info("Overlaid %d curated voice prices", added)
+
+        return result
 
     def fetch_catalog_sync(self) -> CatalogResult:
         """Blocking wrapper — works in all environments including Jupyter.

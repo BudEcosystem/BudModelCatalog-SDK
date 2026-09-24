@@ -43,6 +43,7 @@ LITELLM_TO_RESEARCH: dict[str, str] = {
 STRIP_PREFIXES: dict[str, str] = {
     "assemblyai": "assemblyai/",
     "aws_polly": "aws_polly/",
+    "aws_transcribe": "transcribe/",
     "azure": "azure/",
     "bedrock": "bedrock/",
     "deepgram": "deepgram/",
@@ -82,5 +83,5 @@ def strip_provider_prefix(tz_provider: str, original_key: str) -> str:
     """Strip LiteLLM provider prefix from original_key for URI construction."""
     prefix = STRIP_PREFIXES.get(tz_provider)
     if prefix and original_key.startswith(prefix):
-        return original_key[len(prefix):]
+        return original_key[len(prefix) :]
     return original_key
