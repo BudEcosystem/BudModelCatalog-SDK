@@ -269,3 +269,43 @@ def test_only_credit_based_vendors_are_marked_derived(loaded):
         k.split("/")[0] for k, v in loaded.items() if v["billing"]["confidence"] == "derived"
     }
     assert derived == {"cartesia"}, f"unexpected derived vendors: {sorted(derived - {'cartesia'})}"
+
+
+def test_a_rate_written_in_scientific_notation_is_rejected(tmp_path):
+    """YAML reads `3e-05` as a string, not a float.
+
+    Scientific notation only parses as a number with a decimal point and a signed exponent
+    (`3.0e-05`), so the natural way to write a small rate produces a string that looks
+    completely fine in the file. This was a real bug: generated entries for google_speech
+    and speechify all arrived as strings, and the failure surfaced as a TypeError comparing
+    str to int in an unrelated test.
+    """
+    path = tmp_path / "p.yaml"
+    path.write_text(
+        "vendor:\n"
+        "  model:\n"
+        "    mode: audio_speech\n"
+        "    input_cost_per_character: 3e-05\n"
+        "    billing:\n"
+        "      unit: character\n"
+        "      source:\n"
+        '        checked_on: "2026-09-24"\n'
+    )
+    with pytest.raises(ValueError, match="plain decimal"):
+        CuratedSource(path).load()
+
+
+def test_a_plain_decimal_rate_loads_as_a_float(tmp_path):
+    path = tmp_path / "p.yaml"
+    path.write_text(
+        "vendor:\n"
+        "  model:\n"
+        "    mode: audio_speech\n"
+        "    input_cost_per_character: 0.00003\n"
+        "    billing:\n"
+        "      unit: character\n"
+        "      source:\n"
+        '        checked_on: "2026-09-24"\n'
+    )
+    loaded = CuratedSource(path).load().data
+    assert isinstance(loaded["vendor/model"]["input_cost_per_character"], float)

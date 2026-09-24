@@ -75,6 +75,22 @@ class CuratedSource:
                         "a rate nobody can date is a rate nobody can re-check"
                     )
 
+                for field in ("input_cost_per_second", "input_cost_per_character"):
+                    rate = entry.get(field)
+                    if rate is None:
+                        continue
+                    if not isinstance(rate, (int, float)) or isinstance(rate, bool):
+                        # YAML 1.1 reads `3e-05` as a STRING, because scientific notation
+                        # needs a decimal point and a signed exponent (`3.0e-05`) to be a
+                        # float. A rate that arrives as a string sails through this loader
+                        # and fails much later, somewhere that looks unrelated -- so it is
+                        # caught here, where the message can say what to do about it.
+                        raise ValueError(
+                            f"curated entry {provider}/{model} has {field}={rate!r}, which is "
+                            f"{type(rate).__name__} and not a number. YAML reads '3e-05' as a "
+                            "string; write rates in plain decimal (0.00003) instead."
+                        )
+
                 flattened[f"{provider}/{model}"] = {
                     **entry,
                     "litellm_provider": provider,

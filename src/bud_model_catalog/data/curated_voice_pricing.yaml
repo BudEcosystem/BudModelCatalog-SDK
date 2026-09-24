@@ -34,7 +34,23 @@
 #                   Needs a rendered browser, not an HTTP fetch.
 # resemble       -- the pricing page reached at /pricing/ sells deepfake DETECTION, priced
 #                   per second of analysis. Its TTS rates are somewhere else.
-# speechify, smallest, wellsaid, acapela, cereproc
+# elevenlabs     -- 710KB of HTML that contains the pricing table's LABELS
+#                   ("price_per_1k_characters": "Price per 1K characters") and none of its
+#                   values, which render client-side. What it does state is credits, marked
+#                   "approximate", with per-model variation given as a RANGE ("between 0.5
+#                   and 1 credit per character") and no credit-to-dollar conversion. Even
+#                   with a browser that is a range, not a rate.
+# smallest       -- prices voice-agent LAYERS, approximately: "Speech to Text Layer
+#                   ~$0.009/minutes", "Text to Speech Layer ~$0.09/minutes". The only
+#                   per-model figures on the page belong to third-party LLMs (ChatGPT 4.1
+#                   $0.045/min), so extracting model rates would mean attributing OpenAI's
+#                   prices to smallest. Its own models (Lightning, Lightning-large) are
+#                   never priced by name.
+# google_speech  -- speech-to-TEXT only. The TTS side is scraped; the STT page interleaves
+#                   list prices with 1-year and 3-year committed-savings columns, so reading
+#                   a rate means knowing which column you are in, and getting it wrong
+#                   under-bills by 20% with nothing to show it.
+# wellsaid, acapela, cereproc
 #                -- not yet checked. Add them the same way, one verified page at a time.
 # the regional vendors (iflytek, naver_clova, sberdevices, tinkoff, viettel_ai, zalo_ai,
 # gnani, prosa_ai, nectec, amivoice, phonexia, bhashini, reverie, fpt_ai, baidu,
@@ -265,3 +281,130 @@ cartesia:
           3 credits per second x $65 per 1M credits (pro tier) = 1.95e-04/s. Cross-check:
           the page states Ink costs $0.39/hr on Scale; 3 x 3600 x $38/1M = $0.41/hr, a 5%
           gap, so the conversion is close but not exact -- hence `derived`.
+
+google_speech:
+  # Text-to-Speech only. Google quotes these per character directly, so there is no unit
+  # conversion here and nothing to get wrong about it -- which made this the easiest vendor
+  # of the set to add and the one most worth having: four capabilities, and no models in the
+  # catalog before now.
+  #
+  # Scraped by scrapers/vendors/google_speech.py, so these refresh on their own. What is
+  # written here is the floor used if that page stops parsing.
+  #
+  # Rates are what is charged AFTER the free allowance. Gemini TTS models are excluded: they
+  # bill per million input text tokens and output audio tokens, a basis the catalog cannot
+  # express. Speech-to-Text is a separate page and still absent -- see the note above.
+  chirp-3-hd:
+    mode: audio_speech
+    input_cost_per_character: 0.00003
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/text-to-speech/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as US$3e-05 per character. Chirp 3: HD voices; quoted per character, charged after the free usage allowance.
+  instant-custom-voice:
+    mode: audio_speech
+    input_cost_per_character: 0.00006
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/text-to-speech/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as US$6e-05 per character. Instant custom voice; quoted per character, charged after the free usage allowance.
+  neural2:
+    mode: audio_speech
+    input_cost_per_character: 0.000016
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/text-to-speech/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as US$1.6e-05 per character. Neural2 voices; quoted per character, charged after the free usage allowance.
+  polyglot:
+    mode: audio_speech
+    input_cost_per_character: 0.000016
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/text-to-speech/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as US$1.6e-05 per character. Polyglot (Preview) voices; quoted per character, charged after the free usage allowance.
+  standard:
+    mode: audio_speech
+    input_cost_per_character: 0.000004
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/text-to-speech/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as US$4e-06 per character. Standard voices; quoted per character, charged after the free usage allowance.
+  studio:
+    mode: audio_speech
+    input_cost_per_character: 0.00016
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/text-to-speech/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as US$0.00016 per character. Studio voices; quoted per character, charged after the free usage allowance.
+  wavenet:
+    mode: audio_speech
+    input_cost_per_character: 0.000004
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/text-to-speech/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as US$4e-06 per character. WaveNet voices; quoted per character, charged after the free usage allowance.
+
+speechify:
+  # A single metered rate rather than a per-model price: Speechify charges per character
+  # across all voices, $10 per 1M on the entry plan ($8 Pro, $6 Scale are volume tiers, so
+  # the entry rate is list). `text-to-speech` is a stand-in key following the label
+  # Speechmatics' own table uses -- NOT a deployable model name.
+  #
+  # Its page also carries third-party estimates of competitors' rates, Cartesia at $49/1M
+  # among them. The adapter anchors on the plan-overage phrasing so it cannot read those;
+  # a test feeds the comparison table in and asserts nothing comes out.
+  text-to-speech:
+    mode: audio_speech
+    input_cost_per_character: 0.00001
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://speechify.com/text-to-speech-api/
+        checked_on: "2026-09-24"
+        note: >-
+          Published as $10 per 1M characters. Entry plan $10 per 1M characters; 10 / 1e6. Metered by character across all voices rather than per model. Higher plans are cheaper: $6, $8 per 1M.

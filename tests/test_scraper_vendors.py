@@ -16,7 +16,9 @@ from bud_model_catalog.scrapers.registry import all_scrapers
 from bud_model_catalog.scrapers.validate import validate_batch, validate_model
 from bud_model_catalog.scrapers.vendors.cartesia import CartesiaScraper
 from bud_model_catalog.scrapers.vendors.gladia import GladiaScraper
+from bud_model_catalog.scrapers.vendors.google_speech import GoogleSpeechScraper
 from bud_model_catalog.scrapers.vendors.revai import RevAiScraper
+from bud_model_catalog.scrapers.vendors.speechify import SpeechifyScraper
 from bud_model_catalog.scrapers.vendors.speechmatics import SpeechmaticsScraper
 from bud_model_catalog.sources.curated import CuratedSource
 
@@ -266,3 +268,107 @@ def test_gladia_ignores_the_growth_tier_rate():
 def test_gladia_fails_loudly_when_the_starter_rates_are_gone():
     with pytest.raises(ValueError, match="Async at"):
         GladiaScraper().extract("<html><body>Contact us</body></html>")
+
+
+# --------------------------------------------------------------------------------- #
+# google cloud text-to-speech: a genuine per-model table, already per character
+# --------------------------------------------------------------------------------- #
+
+#: Model key -> published rate per character, as the page states it.
+GOOGLE_EXPECTED = {
+    "chirp-3-hd": 0.00003,
+    "instant-custom-voice": 0.00006,
+    "wavenet": 0.000004,
+    "studio": 0.00016,
+    "standard": 0.000004,
+    "neural2": 0.000016,
+    "polyglot": 0.000016,
+}
+
+
+def test_google_extracts_every_character_priced_model():
+    models = {m.model: m for m in GoogleSpeechScraper().extract(fixture("google_speech"))}
+    assert set(models) == set(GOOGLE_EXPECTED)
+
+
+@pytest.mark.parametrize(("key", "per_character"), sorted(GOOGLE_EXPECTED.items()))
+def test_google_rates_need_no_conversion(key, per_character):
+    """The one vendor that quotes the catalog's own unit directly."""
+    models = {m.model: m for m in GoogleSpeechScraper().extract(fixture("google_speech"))}
+    assert models[key].rate == pytest.approx(per_character)
+    assert models[key].unit == "character"
+    assert models[key].mode == "audio_speech"
+
+
+def test_google_skips_the_token_priced_gemini_rows():
+    """Gemini TTS is billed per million input text tokens and output audio tokens.
+
+    That is a different basis from per character. The fixture includes one of those rows
+    precisely so this stays true -- storing it as a character rate would be wrong by orders
+    of magnitude in a way the bounds check would not catch.
+    """
+    text = fixture("google_speech")
+    assert "per 1 million text tokens" in text, "fixture no longer exercises a Gemini row"
+    models = {m.model for m in GoogleSpeechScraper().extract(text)}
+    assert not any("gemini" in m for m in models)
+
+
+def test_google_model_keys_drop_the_category_suffix_but_not_the_product_name():
+    """ "WaveNet voices" is a category; "Instant custom voice" is a product name."""
+    models = {m.model for m in GoogleSpeechScraper().extract(fixture("google_speech"))}
+    assert "wavenet" in models
+    assert "instant-custom-voice" in models
+
+
+def test_google_fails_loudly_without_a_table():
+    with pytest.raises(ValueError, match="no table rows"):
+        GoogleSpeechScraper().extract("<html><body>Pricing</body></html>")
+
+
+# --------------------------------------------------------------------------------- #
+# speechify: one metered rate, and a competitor table that must not be read
+# --------------------------------------------------------------------------------- #
+
+
+def test_speechify_takes_the_entry_plan_rate():
+    models = GoogleSpeechScraper  # noqa: F841  (guard against copy-paste in this block)
+    extracted = SpeechifyScraper().extract(fixture("speechify"))
+    assert len(extracted) == 1
+    assert extracted[0].model == "text-to-speech"
+    # Starter $10 per 1M is list; Pro $8 and Scale $6 are volume tiers.
+    assert extracted[0].rate == pytest.approx(10 / 1_000_000)
+
+
+def test_speechify_does_not_read_the_third_party_comparison_table():
+    """The most dangerous thing on any of these pages.
+
+    Speechify's page lists Artificial Analysis estimates of *competitors'* prices per
+    million characters -- Inworld at $20.80, Alibaba at $27.60, Cartesia at $49.00, VUI Labs
+    at $80.00. Reading any of those as a Speechify rate would be wrong; reading Cartesia's
+    off Speechify's marketing page would be absurd. The fixture keeps that table so this
+    assertion means something.
+    """
+    text = fixture("speechify")
+    assert "Artificial Analysis estimates" in text, "fixture no longer has the comparison"
+    for competitor_rate in (6.60, 20.80, 27.60, 49.00, 80.00):
+        per_character = competitor_rate / 1_000_000
+        for m in SpeechifyScraper().extract(text):
+            assert m.rate != pytest.approx(per_character), (
+                f"picked up ${competitor_rate} from the third-party comparison table"
+            )
+
+
+def test_speechify_records_the_cheaper_plans_without_using_them():
+    note = SpeechifyScraper().extract(fixture("speechify"))[0].note
+    assert "$6" in note and "$8" in note
+    assert "per 1M characters" in note
+
+
+def test_speechify_fails_loudly_when_the_overage_rate_is_gone():
+    """Including when only the comparison table survives a redesign -- which would
+    otherwise be the worst case: a page full of plausible per-million-character numbers
+    that all belong to other companies."""
+    with pytest.raises(ValueError, match="plan overage"):
+        SpeechifyScraper().extract(
+            "<p>Artificial Analysis estimates Cartesia Sonic 3.6 at $49.00 per million characters.</p>"
+        )

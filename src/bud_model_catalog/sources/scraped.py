@@ -100,7 +100,23 @@ class ScrapedPricingSource(BaseSource):
         today = datetime.now(timezone.utc).date().isoformat()
         for outcome in outcomes:
             for m in outcome.models:
-                data[f"{outcome.vendor}/{m.model}"] = _to_entry(outcome, m, today)
+                key = f"{outcome.vendor}/{m.model}"
+                if key in data:
+                    # Two adapters claiming one catalog key. `validate_batch` catches
+                    # duplicates inside a single extraction, but not across two scrapers
+                    # registered for the same vendor -- which is how Google would look if
+                    # its text-to-speech and speech-to-text pages were both registered and
+                    # both produced a model called "standard". Whichever ran second would
+                    # silently overwrite the first, so neither is trusted quietly.
+                    logger.error(
+                        "Two scrapers produced the catalog key %s; keeping the first and "
+                        "ignoring the one from %s. This is a registry bug, not a vendor "
+                        "change.",
+                        key,
+                        outcome.url,
+                    )
+                    continue
+                data[key] = _to_entry(outcome, m, today)
 
         ok = [o.vendor for o in outcomes if o.ok]
         failed = {o.vendor: o.error for o in outcomes if o.error}

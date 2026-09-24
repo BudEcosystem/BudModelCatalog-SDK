@@ -489,3 +489,37 @@ def test_no_minimum_means_the_key_is_absent_rather_than_null():
 
     result = asyncio.run(go())
     assert "min_billable_units" not in result.data["goodvendor/fast"]["billing"]
+
+
+def test_two_scrapers_claiming_one_key_do_not_silently_overwrite():
+    """`validate_batch` catches duplicates inside one extraction, not across two.
+
+    This is how Google would look if its text-to-speech and speech-to-text pages were both
+    registered and both produced a model called "standard": whichever ran second would
+    quietly win, and the losing rate would never appear anywhere. The first is kept and the
+    clash is logged as the registry bug it is.
+    """
+
+    class First(GoodScraper):
+        vendor = "twinvendor"
+        url = GOOD_URL
+
+        def extract(self, html):  # noqa: ARG002
+            return [ScrapedModel("standard", "audio_transcription", "second", 1.0e-04, "a")]
+
+    class Second(GoodScraper):
+        vendor = "twinvendor"
+        url = OTHER_URL
+
+        def extract(self, html):  # noqa: ARG002
+            return [ScrapedModel("standard", "audio_transcription", "second", 9.0e-04, "b")]
+
+    async def go():
+        with respx.mock:
+            respx.get(GOOD_URL).mock(return_value=httpx.Response(200, text="<html/>"))
+            respx.get(OTHER_URL).mock(return_value=httpx.Response(200, text="<html/>"))
+            return await run(First(), Second())
+
+    result = asyncio.run(go())
+    assert list(result.data) == ["twinvendor/standard"]
+    assert result.data["twinvendor/standard"]["input_cost_per_second"] == pytest.approx(1.0e-04)

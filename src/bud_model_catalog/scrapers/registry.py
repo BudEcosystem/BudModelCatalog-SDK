@@ -27,7 +27,9 @@ from __future__ import annotations
 from .base import VendorScraper
 from .vendors.cartesia import CartesiaScraper
 from .vendors.gladia import GladiaScraper
+from .vendors.google_speech import GoogleSpeechScraper
 from .vendors.revai import RevAiScraper
+from .vendors.speechify import SpeechifyScraper
 from .vendors.speechmatics import SpeechmaticsScraper
 
 #: Every adapter, keyed by bud-connect provider key.
@@ -36,6 +38,8 @@ SCRAPERS: dict[str, type[VendorScraper]] = {
     CartesiaScraper.vendor: CartesiaScraper,
     RevAiScraper.vendor: RevAiScraper,
     GladiaScraper.vendor: GladiaScraper,
+    GoogleSpeechScraper.vendor: GoogleSpeechScraper,
+    SpeechifyScraper.vendor: SpeechifyScraper,
 }
 
 
