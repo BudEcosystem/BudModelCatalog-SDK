@@ -18,6 +18,14 @@
 """Vendor pricing page adapters."""
 
 from .base import ScrapedModel, ScrapeOutcome, VendorScraper
-from .registry import SCRAPERS, all_scrapers
+from .registry import SCRAPERS, all_scrapers, by_slug, slugs
 
-__all__ = ["SCRAPERS", "ScrapeOutcome", "ScrapedModel", "VendorScraper", "all_scrapers"]
+__all__ = [
+    "SCRAPERS",
+    "ScrapeOutcome",
+    "ScrapedModel",
+    "VendorScraper",
+    "all_scrapers",
+    "by_slug",
+    "slugs",
+]

@@ -36,12 +36,12 @@ import sys
 from ..config import CatalogConfig
 from ..sources.curated import CuratedSource
 from ..sources.scraped import ScrapedPricingSource
-from .registry import SCRAPERS, all_scrapers
+from .registry import all_scrapers, slugs
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m bud_model_catalog.scrapers")
-    parser.add_argument("vendors", nargs="*", help=f"any of: {', '.join(sorted(SCRAPERS))}")
+    parser.add_argument("vendors", nargs="*", help=f"any of: {', '.join(slugs())}")
     parser.add_argument("--diff", action="store_true", help="compare against the committed floor")
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="show HTTP and rejection detail"
@@ -53,11 +53,11 @@ def main(argv: list[str] | None = None) -> int:
         format="%(levelname)-7s %(message)s",
     )
 
-    unknown = set(args.vendors) - set(SCRAPERS)
+    unknown = set(args.vendors) - set(slugs())
     if unknown:
         parser.error(f"unknown vendor(s): {', '.join(sorted(unknown))}")
 
-    scrapers = [s for s in all_scrapers() if not args.vendors or s.vendor in args.vendors]
+    scrapers = [s for s in all_scrapers() if not args.vendors or s.slug() in args.vendors]
     result = asyncio.run(ScrapedPricingSource(CatalogConfig(), scrapers).fetch())
 
     floor = CuratedSource().load().data if args.diff else {}

@@ -16,7 +16,10 @@ from bud_model_catalog.scrapers.registry import all_scrapers
 from bud_model_catalog.scrapers.validate import validate_batch, validate_model
 from bud_model_catalog.scrapers.vendors.cartesia import CartesiaScraper
 from bud_model_catalog.scrapers.vendors.gladia import GladiaScraper
-from bud_model_catalog.scrapers.vendors.google_speech import GoogleSpeechScraper
+from bud_model_catalog.scrapers.vendors.google_speech import (
+    GoogleSpeechSttScraper,
+    GoogleSpeechTtsScraper,
+)
 from bud_model_catalog.scrapers.vendors.revai import RevAiScraper
 from bud_model_catalog.scrapers.vendors.speechify import SpeechifyScraper
 from bud_model_catalog.scrapers.vendors.speechmatics import SpeechmaticsScraper
@@ -151,23 +154,23 @@ def test_cartesia_refuses_to_guess_without_the_unit_conversions():
 # --------------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("scraper", all_scrapers(), ids=lambda s: s.vendor)
+@pytest.mark.parametrize("scraper", all_scrapers(), ids=lambda s: s.slug())
 def test_every_adapter_produces_only_valid_models(scraper):
     """The gates and the adapters have to agree, or the source rejects its own output."""
-    extracted = scraper.extract(fixture(scraper.vendor))
+    extracted = scraper.extract(fixture(scraper.slug()))
     for m in extracted:
         assert validate_model(m) is None, f"{scraper.vendor}/{m.model}: {validate_model(m)}"
 
 
-@pytest.mark.parametrize("scraper", all_scrapers(), ids=lambda s: s.vendor)
+@pytest.mark.parametrize("scraper", all_scrapers(), ids=lambda s: s.slug())
 def test_every_adapter_clears_its_own_floor(scraper):
     accepted, rejections = validate_batch(
-        scraper.vendor, scraper.extract(fixture(scraper.vendor)), scraper.min_models
+        scraper.vendor, scraper.extract(fixture(scraper.slug())), scraper.min_models
     )
     assert accepted, rejections
 
 
-@pytest.mark.parametrize("scraper", all_scrapers(), ids=lambda s: s.vendor)
+@pytest.mark.parametrize("scraper", all_scrapers(), ids=lambda s: s.slug())
 def test_every_adapter_agrees_with_the_committed_floor(scraper):
     """The scraper and `curated_voice_pricing.yaml` must not drift apart.
 
@@ -176,7 +179,7 @@ def test_every_adapter_agrees_with_the_committed_floor(scraper):
     land in both, in the same commit.
     """
     committed = CuratedSource().load().data
-    for m in scraper.extract(fixture(scraper.vendor)):
+    for m in scraper.extract(fixture(scraper.slug())):
         key = f"{scraper.vendor}/{m.model}"
         if key not in committed:
             continue  # a model the page has and the file does not yet
@@ -287,14 +290,14 @@ GOOGLE_EXPECTED = {
 
 
 def test_google_extracts_every_character_priced_model():
-    models = {m.model: m for m in GoogleSpeechScraper().extract(fixture("google_speech"))}
+    models = {m.model: m for m in GoogleSpeechTtsScraper().extract(fixture("google_speech_tts"))}
     assert set(models) == set(GOOGLE_EXPECTED)
 
 
 @pytest.mark.parametrize(("key", "per_character"), sorted(GOOGLE_EXPECTED.items()))
 def test_google_rates_need_no_conversion(key, per_character):
     """The one vendor that quotes the catalog's own unit directly."""
-    models = {m.model: m for m in GoogleSpeechScraper().extract(fixture("google_speech"))}
+    models = {m.model: m for m in GoogleSpeechTtsScraper().extract(fixture("google_speech_tts"))}
     assert models[key].rate == pytest.approx(per_character)
     assert models[key].unit == "character"
     assert models[key].mode == "audio_speech"
@@ -307,22 +310,22 @@ def test_google_skips_the_token_priced_gemini_rows():
     precisely so this stays true -- storing it as a character rate would be wrong by orders
     of magnitude in a way the bounds check would not catch.
     """
-    text = fixture("google_speech")
+    text = fixture("google_speech_tts")
     assert "per 1 million text tokens" in text, "fixture no longer exercises a Gemini row"
-    models = {m.model for m in GoogleSpeechScraper().extract(text)}
+    models = {m.model for m in GoogleSpeechTtsScraper().extract(text)}
     assert not any("gemini" in m for m in models)
 
 
 def test_google_model_keys_drop_the_category_suffix_but_not_the_product_name():
     """ "WaveNet voices" is a category; "Instant custom voice" is a product name."""
-    models = {m.model for m in GoogleSpeechScraper().extract(fixture("google_speech"))}
+    models = {m.model for m in GoogleSpeechTtsScraper().extract(fixture("google_speech_tts"))}
     assert "wavenet" in models
     assert "instant-custom-voice" in models
 
 
 def test_google_fails_loudly_without_a_table():
     with pytest.raises(ValueError, match="no table rows"):
-        GoogleSpeechScraper().extract("<html><body>Pricing</body></html>")
+        GoogleSpeechTtsScraper().extract("<html><body>Pricing</body></html>")
 
 
 # --------------------------------------------------------------------------------- #
@@ -331,7 +334,6 @@ def test_google_fails_loudly_without_a_table():
 
 
 def test_speechify_takes_the_entry_plan_rate():
-    models = GoogleSpeechScraper  # noqa: F841  (guard against copy-paste in this block)
     extracted = SpeechifyScraper().extract(fixture("speechify"))
     assert len(extracted) == 1
     assert extracted[0].model == "text-to-speech"
@@ -372,3 +374,137 @@ def test_speechify_fails_loudly_when_the_overage_rate_is_gone():
         SpeechifyScraper().extract(
             "<p>Artificial Analysis estimates Cartesia Sonic 3.6 at $49.00 per million characters.</p>"
         )
+
+
+# --------------------------------------------------------------------------------- #
+# google speech-to-text: three price columns that look identical in stripped text
+# --------------------------------------------------------------------------------- #
+
+#: Model key -> the LIST price per minute. The committed-savings figures for each row are
+#: 10% and 20% lower, and reading one of those instead is the failure this table invites.
+GOOGLE_STT_EXPECTED = {
+    "recognition": 0.016,
+    "dynamic-batch-recognition": 0.003,
+    "speech-recognition-with-data-logging": 0.016,
+    "speech-recognition-without-data-logging": 0.024,
+    "medical-dictation": 0.078,
+    "medical-conversation": 0.078,
+}
+
+#: Every committed-savings rate on the page. None of these may ever be stored.
+GOOGLE_STT_SAVINGS = [
+    0.0144,
+    0.0128,  # recognition
+    0.0027,
+    0.0024,  # dynamic batch
+    0.021,
+    0.019,  # without data logging
+    0.070,
+    0.062,  # medical
+]
+
+
+def test_google_stt_extracts_every_model():
+    models = {m.model: m for m in GoogleSpeechSttScraper().extract(fixture("google_speech_stt"))}
+    assert set(models) == set(GOOGLE_STT_EXPECTED)
+
+
+@pytest.mark.parametrize(("key", "per_minute"), sorted(GOOGLE_STT_EXPECTED.items()))
+def test_google_stt_takes_the_list_rate(key, per_minute):
+    models = {m.model: m for m in GoogleSpeechSttScraper().extract(fixture("google_speech_stt"))}
+    assert models[key].rate == pytest.approx(per_minute / 60)
+    assert models[key].unit == "second"
+    assert models[key].mode == "audio_transcription"
+
+
+def test_google_stt_never_stores_a_committed_savings_rate():
+    """The whole reason this adapter was written separately.
+
+    A 10% error here is invisible: the number is plausible, the units are right, and no
+    bounds check or drift check would ever flag it.
+    """
+    for m in GoogleSpeechSttScraper().extract(fixture("google_speech_stt")):
+        for savings in GOOGLE_STT_SAVINGS:
+            assert m.rate != pytest.approx(savings / 60), (
+                f"{m.model} stored ${savings}/min, which is a committed-savings price"
+            )
+
+
+def test_google_stt_skips_the_free_tier():
+    """Cells read "0 minute to 60 minute $0.00 (Free) ... 60 minute and above $0.016".
+
+    Taking the first number in the cell would price these models at zero -- a request
+    billed as free, which looks entirely unremarkable in a catalog.
+    """
+    text = fixture("google_speech_stt")
+    assert "(Free)" in text, "fixture no longer exercises a free tier"
+    for m in GoogleSpeechSttScraper().extract(text):
+        assert m.rate > 0
+
+
+def test_google_stt_keeps_parentheses_that_change_the_price():
+    """ "with data logging" is $0.016/min and "without" is $0.024/min -- a 50% difference
+    carried entirely inside a parenthetical, so unlike the TTS names these are not stripped.
+    """
+    models = {m.model: m for m in GoogleSpeechSttScraper().extract(fixture("google_speech_stt"))}
+    with_logging = models["speech-recognition-with-data-logging"]
+    without_logging = models["speech-recognition-without-data-logging"]
+    assert without_logging.rate > with_logging.rate
+
+
+def test_google_stt_rejects_a_row_where_list_is_not_the_most_expensive():
+    """The invariant that makes a column misread loud instead of silent.
+
+    List is by definition dearer than a rate you commit a year to. If it is not, the columns
+    have been read in the wrong order, and every rate from that table is suspect.
+    """
+    html = """<table>
+      <tr><th>Category</th><th>Model</th><th>Price (USD)</th>
+          <th>Flexible Savings Plan - 1 Year (USD)</th></tr>
+      <tr><td>Recognition (sku:X)</td><td>Standard</td>
+          <td>$0.01 / 1 minute, per 1 month / account</td>
+          <td>$0.016 / 1 minute, per 1 month / account</td></tr>
+    </table>"""
+    with pytest.raises(ValueError, match="columns are being misread"):
+        GoogleSpeechSttScraper().extract(html)
+
+
+def test_google_stt_refuses_a_table_whose_price_column_it_cannot_name():
+    """There is deliberately no positional fallback.
+
+    Guessing "the third column is the list price" is the entire risk this adapter exists to
+    avoid, so an unrecognised header yields nothing and the source's floor check turns that
+    into a rejection.
+    """
+    html = """<table>
+      <tr><th>Category</th><th>Model</th><th>Flexible Savings Plan - 1 Year (USD)</th></tr>
+      <tr><td>Recognition (sku:X)</td><td>Standard</td>
+          <td>$0.0144 / 1 minute, per 1 month / account</td></tr>
+    </table>"""
+    assert GoogleSpeechSttScraper().extract(html) == []
+
+
+def test_google_stt_tolerates_a_header_shorter_than_its_rows():
+    """One table on the real page declares three columns and then renders five."""
+    html = """<table>
+      <tr><th>Category</th><th>Model</th><th>Price (USD)</th></tr>
+      <tr><td>Dynamic Batch Recognition (sku:X)</td><td>Standard&#185;</td>
+          <td>$0.003 / 1 minute, per 1 month / account</td>
+          <td>$0.0027 / 1 minute, per 1 month / account</td>
+          <td>$0.0024 / 1 minute, per 1 month / account</td></tr>
+    </table>"""
+    extracted = GoogleSpeechSttScraper().extract(html)
+    assert [m.model for m in extracted] == ["dynamic-batch-recognition"]
+    assert extracted[0].rate == pytest.approx(0.003 / 60)
+
+
+def test_google_stt_fails_loudly_without_tables():
+    with pytest.raises(ValueError, match="no tables"):
+        GoogleSpeechSttScraper().extract("<html><body>Pricing</body></html>")
+
+
+def test_the_two_google_adapters_do_not_produce_overlapping_keys():
+    """They share the `google_speech` vendor, so a clash would collide in the catalog."""
+    tts = {m.model for m in GoogleSpeechTtsScraper().extract(fixture("google_speech_tts"))}
+    stt = {m.model for m in GoogleSpeechSttScraper().extract(fixture("google_speech_stt"))}
+    assert not (tts & stt), f"both adapters claim {sorted(tts & stt)}"

@@ -119,8 +119,14 @@ class VendorScraper(ABC):
     adapter can be tested against a fixture with no network at all.
     """
 
-    #: bud-connect provider key. Becomes the first half of the catalog key.
+    #: bud-connect provider key. Becomes the first half of the catalog key. Several
+    #: adapters may share one -- Google publishes text-to-speech and speech-to-text on
+    #: separate pages, and both belong to `google_speech`.
     vendor: ClassVar[str]
+
+    #: Unique name for this adapter, used to select it on the command line and to find its
+    #: test fixture. Defaults to `vendor`, which is right whenever a vendor has one page.
+    name: ClassVar[str] = ""
 
     #: The pricing page to read.
     url: ClassVar[str]
@@ -129,6 +135,11 @@ class VendorScraper(ABC):
     #: when the adapter was written: dropping below it means the page changed shape, not
     #: that the vendor shrank its lineup.
     min_models: ClassVar[int] = 1
+
+    @classmethod
+    def slug(cls) -> str:
+        """How this adapter is addressed, as opposed to which provider it prices."""
+        return cls.name or cls.vendor
 
     @abstractmethod
     def extract(self, html: str) -> list[ScrapedModel]:

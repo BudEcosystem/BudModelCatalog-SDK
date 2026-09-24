@@ -46,10 +46,6 @@
 #                   $0.045/min), so extracting model rates would mean attributing OpenAI's
 #                   prices to smallest. Its own models (Lightning, Lightning-large) are
 #                   never priced by name.
-# google_speech  -- speech-to-TEXT only. The TTS side is scraped; the STT page interleaves
-#                   list prices with 1-year and 3-year committed-savings columns, so reading
-#                   a rate means knowing which column you are in, and getting it wrong
-#                   under-bills by 20% with nothing to show it.
 # wellsaid, acapela, cereproc
 #                -- not yet checked. Add them the same way, one verified page at a time.
 # the regional vendors (iflytek, naver_clova, sberdevices, tinkoff, viettel_ai, zalo_ai,
@@ -386,6 +382,95 @@ google_speech:
         note: >-
           Published as US$4e-06 per character. WaveNet voices; quoted per character, charged after the free usage allowance.
 
+
+  # --- Speech-to-Text. Scraped by the GoogleSpeechSttScraper in the same module as the TTS
+  # adapter, against a table that carries three price columns per row: list, 1-year committed
+  # savings, and 3-year committed savings. These are the LIST rates. The savings columns are
+  # 10% and 20% cheaper and look identical in stripped text, so the adapter finds the list
+  # column by its heading and refuses a table whose heading it cannot identify, then checks
+  # that what it took is not cheaper than the same row's other columns.
+  #
+  # Rates are per minute on the page and stored per second. The free tier each cell opens with
+  # ("0 minute to 60 minute $0.00") is skipped -- pricing a model at zero is a request billed
+  # as free, and it looks unremarkable in a catalog.
+  dynamic-batch-recognition:
+    mode: audio_transcription
+    input_cost_per_second: 0.00005
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/speech-to-text/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as $0.003 per minute. Dynamic Batch Recognition; list price $0.003/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
+  medical-conversation:
+    mode: audio_transcription
+    input_cost_per_second: 0.0013
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/speech-to-text/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as $0.078 per minute. Medical Conversation; list price $0.078/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
+  medical-dictation:
+    mode: audio_transcription
+    input_cost_per_second: 0.0013
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/speech-to-text/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as $0.078 per minute. Medical Dictation; list price $0.078/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
+  recognition:
+    mode: audio_transcription
+    input_cost_per_second: 0.0002666666666666667
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/speech-to-text/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as $0.016 per minute. Recognition; list price $0.016/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
+  speech-recognition-with-data-logging:
+    mode: audio_transcription
+    input_cost_per_second: 0.0002666666666666667
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/speech-to-text/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as $0.016 per minute. Speech Recognition (with data logging); list price $0.016/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
+  speech-recognition-without-data-logging:
+    mode: audio_transcription
+    input_cost_per_second: 0.0004
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/speech-to-text/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as $0.024 per minute. Speech Recognition (without data logging); list price $0.024/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
 speechify:
   # A single metered rate rather than a per-model price: Speechify charges per character
   # across all voices, $10 per 1M on the entry plan ($8 Pro, $6 Scale are volume tiers, so
