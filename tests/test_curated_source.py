@@ -179,10 +179,32 @@ def test_the_aws_transcribe_prefix_is_stripped_under_its_tensorzero_name():
     )
 
 
+#: Vendors a feed covers only partly, and the mode it does not supply. A curated entry for a
+#: fed vendor is allowed ONLY here: it fills a gap the feed leaves rather than curating the
+#: same thing in parallel. Deepgram's STT comes from LiteLLM, which carries none of its TTS --
+#: all 42 LiteLLM Deepgram entries are audio_transcription.
+PARTIAL_FEED_GAPS = frozenset({("deepgram", "audio_speech")})
+
+
 def test_curated_vendors_do_not_collide_with_live_feed_providers(raw):
-    """A vendor a feed covers should be dropped from this file, not curated in parallel."""
-    overlap = set(raw) & set(LITELLM_TO_TENSORZERO.values())
-    assert not overlap, f"{overlap} are covered by LiteLLM; delete them from the curated file"
+    """A feed-covered vendor is curated only in a mode the feed does not supply.
+
+    This used to be vendor-level -- "a vendor a feed covers should be dropped from this
+    file" -- which was right while coverage was all-or-nothing. Deepgram broke that: LiteLLM
+    covers its speech-to-text and none of its text-to-speech, so a vendor-level rule would
+    have left Aura without a fallback price. The intent is unchanged: nothing the feed
+    already supplies is curated in parallel. And if the feed later adds these, the runtime
+    overlay lets the feed's key win and logs that the curated one should be deleted.
+    """
+    covered = set(LITELLM_TO_TENSORZERO.values())
+    for vendor, models in raw.items():
+        if vendor not in covered:
+            continue
+        for model, entry in models.items():
+            assert (vendor, entry["mode"]) in PARTIAL_FEED_GAPS, (
+                f"{vendor}/{model} is {entry['mode']}, which LiteLLM already supplies for "
+                f"{vendor}; delete it from the curated file"
+            )
 
 
 # --------------------------------------------------------------------------------- #

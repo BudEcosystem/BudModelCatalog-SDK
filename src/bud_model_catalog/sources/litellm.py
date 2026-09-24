@@ -24,6 +24,7 @@ into the internal catalog key format (``{tz_provider}/{original_key}``).
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from datetime import datetime, timezone
 
 from ..config import CatalogConfig
@@ -104,6 +105,44 @@ TENSORZERO_PROVIDERS: frozenset[str] = frozenset(
 )
 
 
+def not_a_model(original_key: str, model_data: dict) -> str | None:
+    """Why a LiteLLM entry is not a model anyone can deploy, or None if it is one.
+
+    LiteLLM's price map is a price map. Most entries are models, but some are pricing
+    records that happen to sit alongside them, and publishing those as models puts entries
+    in bud-connect that no route can ever serve: they arrive with no endpoint, and budapp
+    offers them as deployable anyway. Each rule below is here because it removed exactly
+    the entries it names and nothing else when checked against the live map.
+
+    Returns:
+        A short reason, used for the skip log, or None to keep the entry.
+    """
+    mode = model_data.get("mode")
+
+    if not mode:
+        # Size-bucket pricing tiers such as `fireworks-ai-4.1b-to-16b` and
+        # `fireworks-ai-embedding-up-to-150m`. Without a mode there is nothing to derive a
+        # modality or an endpoint from, so the entry is unroutable by construction.
+        return "no mode (a pricing tier, not a model)"
+
+    if mode == "guardrail":
+        # `bedrock/guardrails` prices Bedrock's content-filtering product, which is applied
+        # to another model's traffic rather than deployed on its own.
+        return "guardrail product, not a model"
+
+    if model_data.get("litellm_provider") == "deepgram" and "/streaming/" in original_key:
+        # `deepgram/streaming/*` are PRICING SKUs, not models. Deepgram's own /v1/models
+        # lists no streaming model and no `nova-3-multilingual`: streaming is a way of
+        # calling the same nova-3 models already in the catalog, and "multilingual" is nova-3
+        # with language=multi. The other four -- detect_entities, diarize, keyterm, redact --
+        # are per-feature surcharges, the same category as AWS's Call Analytics SKUs. All six
+        # arrived in bud-connect with no endpoint, because none of them is something a route
+        # can serve.
+        return "deepgram streaming pricing SKU or feature add-on"
+
+    return None
+
+
 def transform_model(original_key: str, model_data: dict, tz_provider: str) -> dict:
     """Transform a raw LiteLLM model entry for the unified catalog.
 
@@ -158,6 +197,7 @@ class LiteLLMSource(BaseSource):
         # Transform models
         result: dict[str, dict] = {}
         skipped = 0
+        not_models: Counter[str] = Counter()
 
         for original_key, model_data in litellm_data.items():
             litellm_provider = model_data.get("litellm_provider")
@@ -171,6 +211,13 @@ class LiteLLMSource(BaseSource):
                 continue
 
             tz_provider = LITELLM_TO_TENSORZERO[litellm_provider]
+
+            reason = not_a_model(original_key, model_data)
+            if reason:
+                logger.debug("Skipping %s: %s", original_key, reason)
+                not_models[reason] += 1
+                skipped += 1
+                continue
 
             if tz_provider not in TENSORZERO_PROVIDERS:
                 logger.warning(
@@ -204,6 +251,12 @@ class LiteLLMSource(BaseSource):
             result[new_key] = transform_model(original_key, model_data, tz_provider)
 
         logger.info("LiteLLM: transformed %d models, skipped %d", len(result), skipped)
+        if not_models:
+            logger.info(
+                "LiteLLM: excluded %d entries that are not models: %s",
+                sum(not_models.values()),
+                dict(not_models),
+            )
 
         fetch_result = FetchResult(
             data=result,

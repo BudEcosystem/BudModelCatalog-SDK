@@ -15,6 +15,7 @@ import pytest
 from bud_model_catalog.scrapers.registry import all_scrapers
 from bud_model_catalog.scrapers.validate import validate_batch, validate_model
 from bud_model_catalog.scrapers.vendors.cartesia import CartesiaScraper
+from bud_model_catalog.scrapers.vendors.deepgram import DeepgramTtsScraper
 from bud_model_catalog.scrapers.vendors.gladia import GladiaScraper
 from bud_model_catalog.scrapers.vendors.google_speech import (
     GoogleSpeechSttScraper,
@@ -459,3 +460,56 @@ def test_the_two_google_adapters_do_not_produce_overlapping_keys():
     tts = {m.model for m in GoogleSpeechTtsScraper().extract(fixture("google_speech_tts"))}
     stt = {m.model for m in GoogleSpeechSttScraper().extract(fixture("google_speech_stt"))}
     assert not (tts & stt), f"both adapters claim {sorted(tts & stt)}"
+
+
+# --------------------------------------------------------------------------------- #
+# deepgram text-to-speech: the models no feed lists
+# --------------------------------------------------------------------------------- #
+
+
+def test_deepgram_extracts_both_aura_families():
+    """LiteLLM's 42 Deepgram entries are all speech-to-text; these are the only TTS models."""
+    models = {m.model: m for m in DeepgramTtsScraper().extract(fixture("deepgram_tts"))}
+    assert set(models) == {"aura-2", "aura"}
+    assert models["aura-2"].rate == pytest.approx(0.030 / 1000)
+    assert models["aura"].rate == pytest.approx(0.015 / 1000)
+    for m in models.values():
+        assert m.unit == "character"
+        assert m.mode == "audio_speech"
+
+
+def test_deepgram_keys_are_the_architecture_names_deepgram_uses():
+    """The pricing page says "Aura-1"; Deepgram's own /v1/models calls that family `aura`.
+
+    A key that follows the marketing name would be a model id nothing recognises.
+    """
+    models = {m.model for m in DeepgramTtsScraper().extract(fixture("deepgram_tts"))}
+    assert "aura" in models
+    assert "aura-1" not in models
+
+
+def test_deepgram_takes_pay_as_you_go_not_growth():
+    """Growth ($0.027 for Aura-2) is a volume commitment; Pay As You Go is list."""
+    models = {m.model: m for m in DeepgramTtsScraper().extract(fixture("deepgram_tts"))}
+    assert models["aura-2"].rate == pytest.approx(0.030 / 1000)
+    assert models["aura-2"].rate != pytest.approx(0.027 / 1000)
+    assert "Growth plan $0.027" in models["aura-2"].note
+
+
+def test_deepgram_does_not_emit_flux_tts():
+    """Flux TTS is priced on the page, but nothing establishes its model id.
+
+    It is absent from Deepgram's /v1/models, and `flux-tts` appears in the docs only as a
+    sidebar URL slug whose pages 404. A key invented here would reach budapp as a model
+    nobody can deploy -- the reason Speechify's single entry was removed. The fixture
+    keeps the Flux row so this stays a real assertion.
+    """
+    text = fixture("deepgram_tts")
+    assert "Flux TTS" in text, "fixture no longer exercises the Flux row"
+    models = {m.model for m in DeepgramTtsScraper().extract(text)}
+    assert not any("flux" in m for m in models)
+
+
+def test_deepgram_fails_loudly_without_the_tts_table():
+    with pytest.raises(ValueError, match="TTS pricing table changed"):
+        DeepgramTtsScraper().extract("<html><body>Contact sales</body></html>")

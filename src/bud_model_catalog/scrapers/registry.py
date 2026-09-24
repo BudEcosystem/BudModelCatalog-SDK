@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from .base import VendorScraper
 from .vendors.cartesia import CartesiaScraper
+from .vendors.deepgram import DeepgramTtsScraper
 from .vendors.gladia import GladiaScraper
 from .vendors.google_speech import GoogleSpeechSttScraper, GoogleSpeechTtsScraper
 from .vendors.revai import RevAiScraper
@@ -41,6 +42,7 @@ SCRAPERS: tuple[type[VendorScraper], ...] = (
     GladiaScraper,
     GoogleSpeechTtsScraper,
     GoogleSpeechSttScraper,
+    DeepgramTtsScraper,
 )
 
 

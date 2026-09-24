@@ -480,3 +480,41 @@ google_speech:
         checked_on: "2026-09-24"
         note: >-
           Published as $0.024 per minute. Speech Recognition (without data logging); list price $0.024/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
+
+deepgram:
+  # TEXT-TO-SPEECH ONLY. Deepgram's speech-to-text reaches the catalog through LiteLLM, which
+  # carries none of its TTS -- every one of LiteLLM's 42 Deepgram entries is
+  # audio_transcription -- so the provider was advertising TEXT_TO_SPEECH with no model behind
+  # it. That is the one case where a feed-covered vendor is curated here; see
+  # PARTIAL_FEED_GAPS in the tests.
+  #
+  # Scraped by scrapers/vendors/deepgram.py; these are the fallback if that page stops
+  # parsing. Priced per FAMILY, not per voice: aura-2 covers 90 voices and aura 12, per
+  # Deepgram's own /v1/models. Flux TTS is priced on the page but not listed here, because
+  # nothing confirms its model id -- see the adapter's docstring.
+  aura:
+    mode: audio_speech
+    input_cost_per_character: 0.000015
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://deepgram.com/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as $0.015/1k characters. Pay As You Go $0.015 per 1k characters; 0.015 / 1000. Growth plan $0.0135/1k. Priced per family; applies to every voice in it.
+  aura-2:
+    mode: audio_speech
+    input_cost_per_character: 0.00003
+    billing:
+      unit: character
+      meter: input_characters
+      currency: USD
+      confidence: curated
+      source:
+        url: https://deepgram.com/pricing
+        checked_on: "2026-09-24"
+        note: >-
+          Published as $0.03/1k characters. Pay As You Go $0.03 per 1k characters; 0.03 / 1000. Growth plan $0.027/1k. Priced per family; applies to every voice in it.
