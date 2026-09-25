@@ -24,6 +24,7 @@ from bud_model_catalog.scrapers.vendors.google_speech import (
 from bud_model_catalog.scrapers.vendors.revai import RevAiScraper
 from bud_model_catalog.scrapers.vendors.speechmatics import SpeechmaticsScraper
 from bud_model_catalog.sources.curated import CuratedSource
+from bud_model_catalog.sources.litellm import LITELLM_TO_TENSORZERO
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "scrape"
 
@@ -36,20 +37,38 @@ def fixture(name: str) -> str:
 # speechmatics: list prices from embedded JSON, promotions from the rendered table
 # --------------------------------------------------------------------------------- #
 
-#: What the page published, and the per-second rate it converts to.
+#: Realtime model id -> what the page published for its row, and the per-second rate.
 SPEECHMATICS_EXPECTED = {
-    "batch-melia-1": (0.24, 0.24 / 3600),
-    "batch-standard": (0.45, 0.45 / 3600),
-    "batch-enhanced": (0.75, 0.75 / 3600),
-    "real-time-standard": (0.45, 0.45 / 3600),
-    "real-time-enhanced": (0.80, 0.80 / 3600),
-    "linden-1": (0.40, 0.40 / 3600),
+    "standard": (0.45, 0.45 / 3600),  # "Real-time Standard"
+    "enhanced": (0.80, 0.80 / 3600),  # "Real-time Enhanced"
 }
 
 
 def test_speechmatics_extracts_every_billable_model():
     models = {m.model: m for m in SpeechmaticsScraper().extract(fixture("speechmatics"))}
     assert set(models) == set(SPEECHMATICS_EXPECTED) | {"text-to-speech"}
+
+
+def test_speechmatics_keys_are_the_realtime_model_ids():
+    """WaaV calls the Realtime API, which accepts `standard` and `enhanced`.
+
+    The page's rows are labels: "Real-time Standard" slugged to `real-time-standard`, an id
+    no endpoint accepts. The Batch rows (including melia-1, Batch-only) and Linden 1 (Agent
+    STT only, `/v2/agent`) price APIs WaaV never calls; the fixture keeps all of them, so
+    this is a real assertion.
+    """
+    text = fixture("speechmatics")
+    for row in ("Batch Standard", "Batch Enhanced", "Batch Melia 1", "Linden 1"):
+        assert f'"Line item":"{row}"' in text, f"fixture no longer carries {row}"
+    models = {m.model for m in SpeechmaticsScraper().extract(text)}
+    assert not models & {
+        "real-time-standard",
+        "real-time-enhanced",
+        "batch-standard",
+        "batch-enhanced",
+        "batch-melia-1",
+        "linden-1",
+    }
 
 
 @pytest.mark.parametrize(
@@ -72,11 +91,13 @@ def test_speechmatics_takes_the_list_price_not_the_promotion():
     rather than lost.
     """
     models = {m.model: m for m in SpeechmaticsScraper().extract(fixture("speechmatics"))}
-    melia = models["batch-melia-1"]
-    assert melia.rate == pytest.approx(0.24 / 3600)  # list
-    assert melia.promotional_rate == pytest.approx(0.129 / 3600)  # displayed
-    assert melia.promotional_rate < melia.rate
-    assert "promotional $0.129/hr" in melia.note
+    standard = models["standard"]
+    assert standard.rate == pytest.approx(0.45 / 3600)  # list
+    assert standard.promotional_rate == pytest.approx(0.24 / 3600)  # displayed
+    assert standard.promotional_rate < standard.rate
+    assert "promotional $0.24/hr" in standard.note
+    # Each Realtime row keeps its own promotion, not a neighbouring Batch row's.
+    assert models["enhanced"].promotional_rate == pytest.approx(0.43 / 3600)
 
 
 def test_speechmatics_reads_the_text_to_speech_row_in_characters():
@@ -203,6 +224,25 @@ def test_every_adapter_agrees_with_the_committed_floor(scraper):
         )
 
 
+@pytest.mark.parametrize(
+    "scraper",
+    [s for s in all_scrapers() if s.vendor not in set(LITELLM_TO_TENSORZERO.values())],
+    ids=lambda s: s.slug(),
+)
+def test_every_key_a_curated_only_adapter_emits_is_in_the_floor(scraper):
+    """A page refreshes prices on keys the catalog has; it cannot add one.
+
+    The scraped overlay drops a key nothing else lists (logged "not published"), so an
+    adapter that emits the page's own label -- `real-time-standard` -- instead of the model
+    id the floor carries -- `standard` -- refreshes nothing and fails silently. For vendors
+    no feed covers the floor is the only list, so every key must be in it.
+    """
+    committed = CuratedSource().load().data
+    emitted = {f"{scraper.vendor}/{m.model}" for m in scraper.extract(fixture(scraper.slug()))}
+    assert emitted, "fixture yielded nothing"
+    assert emitted <= set(committed), f"not in the floor: {sorted(emitted - set(committed))}"
+
+
 # --------------------------------------------------------------------------------- #
 # rev ai: a rate per model, plus the minimum that makes short clips expensive
 # --------------------------------------------------------------------------------- #
@@ -210,11 +250,20 @@ def test_every_adapter_agrees_with_the_committed_floor(scraper):
 
 def test_revai_extracts_the_transcription_models():
     models = {m.model: m for m in RevAiScraper().extract(fixture("revai"))}
-    assert set(models) == {"reverb", "reverb-foreign-language", "whisper-large"}
+    assert set(models) == {"reverb", "reverb-foreign-language"}
     assert models["reverb"].rate == pytest.approx(0.20 / 3600)
     assert models["reverb-foreign-language"].rate == pytest.approx(0.30 / 3600)
-    # Quoted per minute, unlike the other two.
-    assert models["whisper-large"].rate == pytest.approx(0.005 / 60)
+
+
+def test_revai_does_not_publish_whisper_large():
+    """Priced on the page, but no documented `transcriber` value selects it.
+
+    Streaming takes machine / machine_v2 (both Reverb) and async takes machine / human, so
+    a `whisper-large` model is one budapp would offer and no Rev AI request could serve.
+    """
+    assert "Whisper Large Transcription" in fixture("revai"), "fixture lost the Whisper row"
+    models = {m.model for m in RevAiScraper().extract(fixture("revai"))}
+    assert "whisper-large" not in models
 
 
 def test_revai_carries_the_fifteen_second_minimum():
@@ -265,11 +314,18 @@ def test_revai_fails_loudly_when_the_blocks_are_gone():
 # --------------------------------------------------------------------------------- #
 
 
-def test_gladia_extracts_both_rates():
-    models = {m.model: m for m in GladiaScraper().extract(fixture("gladia"))}
-    assert set(models) == {"async", "real-time"}
-    assert models["async"].rate == pytest.approx(0.61 / 3600)
-    assert models["real-time"].rate == pytest.approx(0.75 / 3600)
+def test_gladia_prices_the_live_model_from_the_real_time_rate():
+    """The live API's `model` takes exactly one value, `solaria-1`, and WaaV calls that API.
+
+    "Async" and "Real-time" are product names no endpoint accepts. Async prices the
+    pre-recorded API, which WaaV does not call, so it is read but not published; the
+    fixture carries it, so that is a real assertion.
+    """
+    text = fixture("gladia")
+    assert "Async at <strong>$0.61" in text, "fixture no longer exercises the Async row"
+    models = {m.model: m for m in GladiaScraper().extract(text)}
+    assert set(models) == {"solaria-1"}
+    assert models["solaria-1"].rate == pytest.approx(0.75 / 3600)
 
 
 def test_gladia_ignores_the_growth_tier_rate():
@@ -293,7 +349,6 @@ def test_gladia_fails_loudly_when_the_starter_rates_are_gone():
 #: Model key -> published rate per character, as the page states it.
 GOOGLE_EXPECTED = {
     "chirp-3-hd": 0.00003,
-    "instant-custom-voice": 0.00006,
     "wavenet": 0.000004,
     "studio": 0.00016,
     "standard": 0.000004,
@@ -331,9 +386,22 @@ def test_google_skips_the_token_priced_gemini_rows():
 
 def test_google_model_keys_drop_the_category_suffix_but_not_the_product_name():
     """ "WaveNet voices" is a category; "Instant custom voice" is a product name."""
-    models = {m.model for m in GoogleSpeechTtsScraper().extract(fixture("google_speech_tts"))}
-    assert "wavenet" in models
-    assert "instant-custom-voice" in models
+    from bud_model_catalog.scrapers.vendors.google_speech import _slug
+
+    assert _slug("WaveNet voices") == "wavenet"
+    assert _slug("Instant custom voice") == "instant-custom-voice"
+
+
+def test_google_does_not_publish_instant_custom_voice():
+    """Priced per character, but not a voice family a request can name.
+
+    It is reachable only through v1beta1 `text:synthesize` with a per-customer
+    `voice_cloning_key`, so as a model it is one nobody can deploy.
+    """
+    text = fixture("google_speech_tts")
+    assert "Instant custom voice" in text, "fixture no longer exercises the row"
+    models = {m.model for m in GoogleSpeechTtsScraper().extract(text)}
+    assert "instant-custom-voice" not in models
 
 
 def test_google_fails_loudly_without_a_table():
@@ -345,15 +413,15 @@ def test_google_fails_loudly_without_a_table():
 # google speech-to-text: three price columns that look identical in stripped text
 # --------------------------------------------------------------------------------- #
 
-#: Model key -> the LIST price per minute. The committed-savings figures for each row are
-#: 10% and 20% lower, and reading one of those instead is the failure this table invites.
+#: V2 model id -> the LIST price per minute of the row that prices it. The committed-savings
+#: figures for each row are 10% and 20% lower, and reading one of those instead is the
+#: failure this table invites.
 GOOGLE_STT_EXPECTED = {
-    "recognition": 0.016,
-    "dynamic-batch-recognition": 0.003,
-    "speech-recognition-with-data-logging": 0.016,
-    "speech-recognition-without-data-logging": 0.024,
-    "medical-dictation": 0.078,
-    "medical-conversation": 0.078,
+    "chirp_3": 0.016,  # the V2 "Recognition" (Standard) row
+    "chirp_2": 0.016,
+    "telephony": 0.016,
+    "medical_dictation": 0.078,
+    "medical_conversation": 0.078,
 }
 
 #: Every committed-savings rate on the page. None of these may ever be stored.
@@ -410,11 +478,49 @@ def test_google_stt_skips_the_free_tier():
 def test_google_stt_keeps_parentheses_that_change_the_price():
     """ "with data logging" is $0.016/min and "without" is $0.024/min -- a 50% difference
     carried entirely inside a parenthetical, so unlike the TTS names these are not stripped.
+
+    Neither row is published any more (both are V1 SKUs), but the row names still have to
+    stay distinct: they are how the skip list tells them apart from a new row.
     """
-    models = {m.model: m for m in GoogleSpeechSttScraper().extract(fixture("google_speech_stt"))}
-    with_logging = models["speech-recognition-with-data-logging"]
-    without_logging = models["speech-recognition-without-data-logging"]
-    assert without_logging.rate > with_logging.rate
+    from bud_model_catalog.scrapers.vendors.google_speech import STT_ROWS_SKIPPED, _stt_slug
+
+    with_logging = _stt_slug("Speech Recognition (with data logging) sku:67F5-A183-E319")
+    without_logging = _stt_slug("Speech Recognition (without data logging) sku:60AE-2FE3-C3D8")
+    assert with_logging != without_logging
+    assert {with_logging, without_logging} <= set(STT_ROWS_SKIPPED)
+
+
+def test_google_stt_keys_are_v2_model_ids_not_sku_labels():
+    """The page prices SKUs; a V2 request names a model.
+
+    `recognition`, `dynamic-batch-recognition` and the data-logging rows are SKU labels no
+    `RecognitionConfig.model` accepts, and `medical-dictation` is the hyphenated form of a
+    real id Google spells `medical_dictation`. The fixture carries every one of those rows.
+    """
+    models = {m.model for m in GoogleSpeechSttScraper().extract(fixture("google_speech_stt"))}
+    assert not models & {
+        "recognition",
+        "dynamic-batch-recognition",
+        "speech-recognition-with-data-logging",
+        "speech-recognition-without-data-logging",
+        "medical-dictation",
+        "medical-conversation",
+    }
+    assert {"chirp_3", "chirp_2", "telephony"} <= models
+
+
+def test_google_stt_logs_a_priced_row_it_cannot_map(caplog):
+    """A new row is a decision for a person, not a key to invent or a row to lose quietly."""
+    html = """<table>
+      <tr><th>Category</th><th>Model</th><th>Price (USD)</th></tr>
+      <tr><td>Chirp 9 Recognition (sku:X)</td><td>Standard</td>
+          <td>$0.02 / 1 minute, per 1 month / account</td></tr>
+      <tr><td>Dynamic Batch Recognition (sku:Y)</td><td>Standard</td>
+          <td>$0.003 / 1 minute, per 1 month / account</td></tr>
+    </table>"""
+    assert GoogleSpeechSttScraper().extract(html) == []
+    assert "chirp-9-recognition" in caplog.text
+    assert "dynamic-batch-recognition" not in caplog.text  # known and deliberately skipped
 
 
 def test_google_stt_rejects_a_row_where_list_is_not_the_most_expensive():
@@ -453,14 +559,14 @@ def test_google_stt_tolerates_a_header_shorter_than_its_rows():
     """One table on the real page declares three columns and then renders five."""
     html = """<table>
       <tr><th>Category</th><th>Model</th><th>Price (USD)</th></tr>
-      <tr><td>Dynamic Batch Recognition (sku:X)</td><td>Standard&#185;</td>
-          <td>$0.003 / 1 minute, per 1 month / account</td>
-          <td>$0.0027 / 1 minute, per 1 month / account</td>
-          <td>$0.0024 / 1 minute, per 1 month / account</td></tr>
+      <tr><td>Medical Dictation (sku:X)</td><td>Medical&#178;</td>
+          <td>$0.078 / 1 minute, per 1 month / account</td>
+          <td>$0.0702 / 1 minute, per 1 month / account</td>
+          <td>$0.0624 / 1 minute, per 1 month / account</td></tr>
     </table>"""
     extracted = GoogleSpeechSttScraper().extract(html)
-    assert [m.model for m in extracted] == ["dynamic-batch-recognition"]
-    assert extracted[0].rate == pytest.approx(0.003 / 60)
+    assert [m.model for m in extracted] == ["medical_dictation"]
+    assert extracted[0].rate == pytest.approx(0.078 / 60)
 
 
 def test_google_stt_fails_loudly_without_tables():
@@ -535,12 +641,19 @@ def test_speechmatics_reads_a_rows_own_crossed_out_price_as_list():
     """Linden 1's row is `"Pro Plan value":"0.30","Crossed-out price":"0.40"`.
 
     The tooltip says "discounted 25% from a $0.40/hr list rate", so 0.30 is the promotion.
-    Taking the plan value stored a promotional price as list -- a 25% under-bill.
+    Taking the plan value stored a promotional price as list -- a 25% under-bill. Linden is
+    no longer published, so the same row shape is exercised on a Realtime model.
     """
-    models = {m.model: m for m in SpeechmaticsScraper().extract(fixture("speechmatics"))}
-    linden = models["linden-1"]
-    assert linden.rate == pytest.approx(0.40 / 3600)
-    assert linden.promotional_rate == pytest.approx(0.30 / 3600)
+    html = (
+        '{"Section":"Pricing","Category":"Speech-to-Text models",'
+        '"Line item":"Real-time Enhanced","Pro Plan value":"0.60","Crossed-out price":"0.80"}'
+        '{"Section":"Pricing","Category":"Speech-to-Text models",'
+        '"Line item":"Real-time Standard","Pro Plan value":"0.45","Crossed-out price":""}'
+    )
+    models = {m.model: m for m in SpeechmaticsScraper().extract(html)}
+    assert models["enhanced"].rate == pytest.approx(0.80 / 3600)
+    assert models["enhanced"].promotional_rate == pytest.approx(0.60 / 3600)
+    assert models["standard"].promotional_rate is None
 
 
 def test_speechmatics_slugs_keep_version_dots():

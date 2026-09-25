@@ -57,25 +57,15 @@
 #                -- quote on contract or behind a region-locked console. No public rate.
 
 gladia:
-  # Gladia does not name its models on the pricing page; it prices two PRODUCTS, async
-  # (pre-recorded) and real-time. These keys are those product names, not API model
-  # identifiers -- whoever wires WaaV will need to map them to Gladia's endpoints.
-  async:
-    mode: audio_transcription
-    input_cost_per_second: 0.00016944444444444444
-    billing:
-      unit: second
-      meter: input_audio_seconds
-      currency: USD
-      confidence: curated
-      source:
-        url: https://www.gladia.io/pricing
-        checked_on: "2026-09-22"
-        note: >-
-          $0.61 per hour on the Starter (pay-as-you-go) plan; 0.61 / 3600. The Growth plan
-          quotes "as low as $0.20/hr" for committed volume, which is a contract rate with
-          no published threshold ladder, so it is not modelled as a tier.
-  real-time:
+  # Keyed by the `model` Gladia's LIVE API accepts, which is the API WaaV calls
+  # (wss via POST /v2/live). Its only value is `solaria-1`, also the default
+  # (docs.gladia.io/api-reference/v2/live/init, read 2026-09-26). The pricing page names no
+  # model; it prices two PRODUCTS, "Async" (pre-recorded) and "Real-time", and this file used
+  # to carry those product names as `gladia/async` and `gladia/real-time` -- neither is an id
+  # any Gladia endpoint accepts. The Real-time rate is the live rate, so it prices
+  # `solaria-1`. The Async rate is not listed: WaaV never calls the pre-recorded API, and
+  # `solaria-3` is pre-recorded only (docs.gladia.io/chapters/introduction/models).
+  solaria-1:
     mode: audio_transcription
     input_cost_per_second: 0.00020833333333333335
     billing:
@@ -85,12 +75,21 @@ gladia:
       confidence: curated
       source:
         url: https://www.gladia.io/pricing
-        checked_on: "2026-09-22"
-        note: $0.75 per hour on the Starter (pay-as-you-go) plan; 0.75 / 3600.
+        checked_on: "2026-09-26"
+        note: >-
+          "Real-time at $0.75 /hr" on the Starter (pay-as-you-go) plan; 0.75 / 3600. The
+          Growth plan quotes "as low as $0.25 /hr" for committed volume, which is a contract
+          rate with no published threshold ladder, so it is not modelled as a tier.
 
 revai:
-  # Rev AI quotes Reverb per HOUR and Whisper Large per MINUTE -- two units inside one
-  # vendor. Both normalise to per-second here, which is the point of normalising.
+  # Rev AI quotes per HOUR here; both entries normalise to per-second.
+  #
+  # "Whisper Large Transcription" ($0.005/min) is priced on the same page but not listed: no
+  # documented `transcriber` value selects it. The streaming API WaaV calls
+  # (wss://api.rev.ai/speechtotext/v1/stream) takes machine / machine_v2, both Reverb
+  # (docs.rev.ai/api/streaming/transcribers), and the async API takes machine / human
+  # (docs.rev.ai/api/asynchronous/transcribers), both read 2026-09-26. A `whisper-large`
+  # entry was a model budapp offered that no Rev AI request could reach.
   reverb:
     mode: audio_transcription
     input_cost_per_second: 0.00005555555555555556
@@ -122,48 +121,28 @@ revai:
         url: https://www.rev.ai/pricing
         checked_on: "2026-09-22"
         note: $0.30 per hour across 53+ languages; 0.30 / 3600. Same 15-second minimum.
-  whisper-large:
-    mode: audio_transcription
-    input_cost_per_second: 0.00008333333333333333
-    billing:
-      unit: second
-      meter: input_audio_seconds
-      min_billable_units: 15
-      rounding_increment: 1
-      currency: USD
-      confidence: curated
-      source:
-        url: https://www.rev.ai/pricing
-        checked_on: "2026-09-22"
-        note: >-
-          $0.005 per MINUTE, not per hour; 0.005 / 60. Human transcription ($1.99/min) and
-          forced alignment ($0.003/min) are deliberately omitted -- the first is a human
-          service rather than a model, the second a different operation.
 
 speechmatics:
+  # Keyed by the model ids Speechmatics' REALTIME API accepts -- `standard` and `enhanced` --
+  # because that is the API WaaV calls (wss://{eu,us}.rt.speechmatics.com/v2). Per
+  # docs.speechmatics.com/speech-to-text/models (read 2026-09-26): Batch takes enhanced,
+  # standard and melia-1; Realtime takes enhanced and standard; Agent STT (`/v2/agent`) takes
+  # linden-1. The page's "Batch Standard", "Batch Enhanced", "Batch Melia 1" and "Linden 1"
+  # rows therefore price APIs WaaV never calls and are not listed, and the two "Real-time"
+  # rows are keyed by the id rather than by the page label (`real-time-standard` was a
+  # pricing label no endpoint accepts).
+  #
   # Read from the structured pricing table the page embeds as JSON (`"Section":"Pricing"`
   # rows), not from the rendered text -- the two disagree. The JSON carries LIST prices; the
-  # rendered page shows a promotional rate about 46% lower (Batch Melia 1 displays $0.129/hr
-  # against a $0.24/hr list). List is stored here for the same reason AWS's tier-0 rate is:
-  # a promotional price expires, and over-estimating a cost is the safer error. The promo is
-  # recorded in each note so the gap is visible rather than surprising.
+  # rendered page shows a promotional rate about 46% lower (Real-time Standard displays
+  # $0.24/hr against a $0.45/hr list). List is stored here for the same reason AWS's tier-0
+  # rate is: a promotional price expires, and over-estimating a cost is the safer error. The
+  # promo is recorded in each note so the gap is visible rather than surprising.
   #
   # The "bolt-ons" on that page (Translation $0.65/hr, Summaries, Chapters, Sentiment,
   # Topics) are per-feature surcharges rather than models, and are excluded for the same
   # reason AWS's Call Analytics and Redaction SKUs are.
-  batch-melia-1:
-    mode: audio_transcription
-    input_cost_per_second: 0.00006666666666666667
-    billing:
-      unit: second
-      meter: input_audio_seconds
-      currency: USD
-      confidence: curated
-      source:
-        url: https://www.speechmatics.com/pricing
-        checked_on: "2026-09-23"
-        note: List $0.24/hr; 0.24 / 3600. Page currently displays a promotional $0.129/hr.
-  batch-standard:
+  standard:
     mode: audio_transcription
     input_cost_per_second: 0.000125
     billing:
@@ -173,33 +152,11 @@ speechmatics:
       confidence: curated
       source:
         url: https://www.speechmatics.com/pricing
-        checked_on: "2026-09-23"
-        note: List $0.45/hr; 0.45 / 3600. Page currently displays a promotional $0.24/hr.
-  batch-enhanced:
-    mode: audio_transcription
-    input_cost_per_second: 0.00020833333333333335
-    billing:
-      unit: second
-      meter: input_audio_seconds
-      currency: USD
-      confidence: curated
-      source:
-        url: https://www.speechmatics.com/pricing
-        checked_on: "2026-09-23"
-        note: List $0.75/hr; 0.75 / 3600. Page currently displays a promotional $0.40/hr.
-  real-time-standard:
-    mode: audio_transcription
-    input_cost_per_second: 0.000125
-    billing:
-      unit: second
-      meter: input_audio_seconds
-      currency: USD
-      confidence: curated
-      source:
-        url: https://www.speechmatics.com/pricing
-        checked_on: "2026-09-23"
-        note: List $0.45/hr; 0.45 / 3600. Page currently displays a promotional $0.24/hr.
-  real-time-enhanced:
+        checked_on: "2026-09-26"
+        note: >-
+          "Real-time Standard" row. List $0.45/hr; 0.45 / 3600. Page currently displays a
+          promotional $0.24/hr.
+  enhanced:
     mode: audio_transcription
     input_cost_per_second: 0.00022222222222222223
     billing:
@@ -209,23 +166,10 @@ speechmatics:
       confidence: curated
       source:
         url: https://www.speechmatics.com/pricing
-        checked_on: "2026-09-23"
-        note: List $0.80/hr; 0.80 / 3600. Page currently displays a promotional $0.43/hr.
-  linden-1:
-    mode: audio_transcription
-    input_cost_per_second: 0.00011111111111111112
-    billing:
-      unit: second
-      meter: input_audio_seconds
-      currency: USD
-      confidence: curated
-      source:
-        url: https://www.speechmatics.com/pricing
-        checked_on: "2026-09-24"
+        checked_on: "2026-09-26"
         note: >-
-          List $0.40/hr; 0.40 / 3600. The row's own "Crossed-out price" is 0.40 and its plan
-          value 0.30 is a promotion ("Currently discounted 25% from a $0.40/hr list rate").
-          This entry previously stored the $0.30 promotion as if it were list.
+          "Real-time Enhanced" row. List $0.80/hr; 0.80 / 3600. Page currently displays a
+          promotional $0.43/hr.
   text-to-speech:
     mode: audio_speech
     input_cost_per_character: 0.000011
@@ -319,17 +263,19 @@ cartesia:
           gap, so the conversion is close but not exact -- hence `derived`.
 
 google_speech:
-  # Text-to-Speech only. Google quotes these per character directly, so there is no unit
-  # conversion here and nothing to get wrong about it -- which made this the easiest vendor
-  # of the set to add and the one most worth having: four capabilities, and no models in the
-  # catalog before now.
+  # --- Text-to-Speech. Google quotes these per character directly, so there is no unit
+  # conversion here and nothing to get wrong about it.
   #
   # Scraped by scrapers/vendors/google_speech.py, so these refresh on their own. What is
   # written here is the floor used if that page stops parsing.
   #
   # Rates are what is charged AFTER the free allowance. Gemini TTS models are excluded: they
   # bill per million input text tokens and output audio tokens, a basis the catalog cannot
-  # express. Speech-to-Text is a separate page and still absent -- see the note above.
+  # express. "Instant custom voice" (US$6e-05/char) is priced on the page but is not listed:
+  # it is not a voice family a request names. It is only reachable through the v1beta1
+  # `text:synthesize` endpoint with `voice.voice_clone.voice_cloning_key`, a key minted per
+  # customer from consented reference audio by `v1beta1/voices:generateVoiceCloningKey`
+  # (docs.cloud.google.com/text-to-speech/docs/chirp3-instant-custom-voice, read 2026-09-26).
   chirp-3-hd:
     mode: audio_speech
     input_cost_per_character: 0.00003
@@ -343,19 +289,6 @@ google_speech:
         checked_on: "2026-09-24"
         note: >-
           Published as US$3e-05 per character. Chirp 3: HD voices; quoted per character, charged after the free usage allowance.
-  instant-custom-voice:
-    mode: audio_speech
-    input_cost_per_character: 0.00006
-    billing:
-      unit: character
-      meter: input_characters
-      currency: USD
-      confidence: curated
-      source:
-        url: https://cloud.google.com/text-to-speech/pricing
-        checked_on: "2026-09-24"
-        note: >-
-          Published as US$6e-05 per character. Instant custom voice; quoted per character, charged after the free usage allowance.
   neural2:
     mode: audio_speech
     input_cost_per_character: 0.000016
@@ -433,9 +366,28 @@ google_speech:
   # Rates are per minute on the page and stored per second. The free tier each cell opens with
   # ("0 minute to 60 minute $0.00") is skipped -- pricing a model at zero is a request billed
   # as free, and it looks unremarkable in a catalog.
-  dynamic-batch-recognition:
+  #
+  # Keyed by the `model` string Speech-to-Text V2's RecognitionConfig takes, because V2 is the
+  # API WaaV calls (StreamingRecognize). The pricing page names SKUs, not models, and this
+  # file used to carry those SKU labels as keys (`recognition`, `dynamic-batch-recognition`,
+  # `speech-recognition-with-data-logging`, ...) -- none of which is a model any request can
+  # name. What the page's rows price, per SKU:
+  #
+  # * "Recognition" is the one row of the V2 "Standard recognition models" table, so it prices
+  #   every V2 standard model: chirp_3, chirp_2 and telephony, the models
+  #   docs.cloud.google.com/speech-to-text/docs/transcription-model lists for V2.
+  # * "Medical Dictation" / "Medical Conversation" price `medical_dictation` and
+  #   `medical_conversation`. Both are V2 model ids: the "Cloud Speech-to-Text V2 supported
+  #   languages" table lists them for en-US in `global`, `us` and `eu`
+  #   (docs.cloud.google.com/speech-to-text/docs/speech-to-text-supported-languages, read
+  #   2026-09-26). Their price row sits under the page's V1 heading, but the V2 section's own
+  #   footnote names them as its "Medical" models and no other medical rate is published.
+  # * "Dynamic Batch Recognition" is a discounted urgency mode of BatchRecognize on the same
+  #   models, not a model, and WaaV streams. Not listed.
+  # * "Speech Recognition (with/without data logging)" are V1 SKUs. Not listed.
+  chirp_3:
     mode: audio_transcription
-    input_cost_per_second: 0.00005
+    input_cost_per_second: 0.0002666666666666667
     billing:
       unit: second
       meter: input_audio_seconds
@@ -443,10 +395,36 @@ google_speech:
       confidence: curated
       source:
         url: https://cloud.google.com/speech-to-text/pricing
-        checked_on: "2026-09-24"
+        checked_on: "2026-09-26"
         note: >-
-          Published as $0.003 per minute. Dynamic Batch Recognition; list price $0.003/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
-  medical-conversation:
+          Published as $0.016 per minute. V2 "Recognition" SKU (Standard); list price $0.016/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column. First tier of 0-500,000 minutes per month; volume tiers below it are not modelled.
+  chirp_2:
+    mode: audio_transcription
+    input_cost_per_second: 0.0002666666666666667
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/speech-to-text/pricing
+        checked_on: "2026-09-26"
+        note: >-
+          Published as $0.016 per minute. V2 "Recognition" SKU (Standard); list price $0.016/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column. First tier of 0-500,000 minutes per month; volume tiers below it are not modelled.
+  telephony:
+    mode: audio_transcription
+    input_cost_per_second: 0.0002666666666666667
+    billing:
+      unit: second
+      meter: input_audio_seconds
+      currency: USD
+      confidence: curated
+      source:
+        url: https://cloud.google.com/speech-to-text/pricing
+        checked_on: "2026-09-26"
+        note: >-
+          Published as $0.016 per minute. V2 "Recognition" SKU (Standard); list price $0.016/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column. First tier of 0-500,000 minutes per month; volume tiers below it are not modelled.
+  medical_conversation:
     mode: audio_transcription
     input_cost_per_second: 0.0013
     billing:
@@ -456,10 +434,10 @@ google_speech:
       confidence: curated
       source:
         url: https://cloud.google.com/speech-to-text/pricing
-        checked_on: "2026-09-24"
+        checked_on: "2026-09-26"
         note: >-
           Published as $0.078 per minute. Medical Conversation; list price $0.078/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
-  medical-dictation:
+  medical_dictation:
     mode: audio_transcription
     input_cost_per_second: 0.0013
     billing:
@@ -469,48 +447,9 @@ google_speech:
       confidence: curated
       source:
         url: https://cloud.google.com/speech-to-text/pricing
-        checked_on: "2026-09-24"
+        checked_on: "2026-09-26"
         note: >-
           Published as $0.078 per minute. Medical Dictation; list price $0.078/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
-  recognition:
-    mode: audio_transcription
-    input_cost_per_second: 0.0002666666666666667
-    billing:
-      unit: second
-      meter: input_audio_seconds
-      currency: USD
-      confidence: curated
-      source:
-        url: https://cloud.google.com/speech-to-text/pricing
-        checked_on: "2026-09-24"
-        note: >-
-          Published as $0.016 per minute. Recognition; list price $0.016/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
-  speech-recognition-with-data-logging:
-    mode: audio_transcription
-    input_cost_per_second: 0.0002666666666666667
-    billing:
-      unit: second
-      meter: input_audio_seconds
-      currency: USD
-      confidence: curated
-      source:
-        url: https://cloud.google.com/speech-to-text/pricing
-        checked_on: "2026-09-24"
-        note: >-
-          Published as $0.016 per minute. Speech Recognition (with data logging); list price $0.016/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
-  speech-recognition-without-data-logging:
-    mode: audio_transcription
-    input_cost_per_second: 0.0004
-    billing:
-      unit: second
-      meter: input_audio_seconds
-      currency: USD
-      confidence: curated
-      source:
-        url: https://cloud.google.com/speech-to-text/pricing
-        checked_on: "2026-09-24"
-        note: >-
-          Published as $0.024 per minute. Speech Recognition (without data logging); list price $0.024/minute / 60, taken from the 'Price (USD)' column rather than a committed-savings column, and after any free tier.
 
 deepgram:
   # TEXT-TO-SPEECH ONLY. Deepgram's speech-to-text reaches the catalog through LiteLLM, which

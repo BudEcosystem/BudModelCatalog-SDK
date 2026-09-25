@@ -15,7 +15,7 @@
 #  -----------------------------------------------------------------------------
 
 
-"""Gladia: two rates on the entry plan.
+"""Gladia: the live-API rate on the entry plan, keyed by the model the live API accepts.
 
 The page shows Starter as "Async at $0.61 /hr" and "Real-time at $0.75 /hr", and Growth as
 "Async as low as $0.20 /hr". Only Starter is matched: Growth requires an upfront commitment,
@@ -24,6 +24,12 @@ here for the same reason it is for AWS tiers and Speechmatics promotions.
 
 The phrasing difference is what separates them -- "at $X" against "as low as $X" -- so a
 pattern anchored on "at" cannot pick up a committed rate by accident.
+
+"Async" and "Real-time" are PRODUCTS, not model ids, and this adapter used to publish them as
+`gladia/async` and `gladia/real-time` -- names no Gladia endpoint accepts. WaaV calls the
+live API (POST /v2/live), whose `model` takes exactly one value, `solaria-1`, also the default
+(docs.gladia.io/api-reference/v2/live/init). So the Real-time rate prices `solaria-1`, and the
+Async rate, which prices the pre-recorded API WaaV never calls, is read but not published.
 """
 
 from __future__ import annotations
@@ -37,13 +43,17 @@ from ..base import AUDIO_TRANSCRIPTION, ScrapedModel, VendorScraper
 #: /hr" does not match.
 _RATE = re.compile(r"(Async|Real-time)\s+at\s+\$(\d+(?:\.\d+)?)\s*/\s*hr", re.I)
 
+#: Starter-plan product (lower-cased) -> the model id it prices. "async" is deliberately
+#: absent: it prices the pre-recorded API, which WaaV does not call.
+PRODUCTS: dict[str, str] = {"real-time": "solaria-1"}
+
 _SECONDS_PER_HOUR = 3600.0
 
 
 class GladiaScraper(VendorScraper):
     vendor = "gladia"
     url = "https://www.gladia.io/pricing"
-    min_models = 2
+    min_models = len(PRODUCTS)
 
     def extract(self, html: str) -> list[ScrapedModel]:
         text = re.sub(r"\s+", " ", html_mod.unescape(re.sub(r"<[^>]+>", " ", html)))
@@ -54,18 +64,21 @@ class GladiaScraper(VendorScraper):
 
         out: list[ScrapedModel] = []
         for label, amount in found:
-            key = label.strip().lower()
+            product = label.strip().lower()
+            model = PRODUCTS.get(product)
+            if model is None:
+                continue
             per_hour = float(amount)
             out.append(
                 ScrapedModel(
-                    model=key,
+                    model=model,
                     mode=AUDIO_TRANSCRIPTION,
                     unit="second",
                     rate=per_hour / _SECONDS_PER_HOUR,
                     published_as=f"${per_hour:g}/hr",
                     note=(
-                        f"Starter plan ${per_hour:g}/hr; {per_hour:g} / 3600. Growth tier is "
-                        "cheaper but requires an upfront commitment."
+                        f"Starter plan {label.strip()} ${per_hour:g}/hr; {per_hour:g} / 3600. "
+                        "Growth tier is cheaper but requires an upfront commitment."
                     ),
                 )
             )

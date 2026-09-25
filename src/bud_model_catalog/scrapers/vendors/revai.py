@@ -32,6 +32,11 @@ are the common case for voice.
 Excluded, deliberately:
 
 * Human Transcription ($1.99/min) is people, not a model anyone deploys.
+* Whisper Large Transcription ($0.005/min) is priced but unreachable: no documented
+  `transcriber` value selects it. The streaming API WaaV calls takes machine / machine_v2,
+  both Reverb (docs.rev.ai/api/streaming/transcribers), and the async API takes machine /
+  human (docs.rev.ai/api/asynchronous/transcribers). A `whisper-large` model was one budapp
+  offered and no Rev AI request could serve.
 * Forced Alignment, Language Identification, Translation, Sentiment, Summarization and
   Topic Extraction are add-ons applied to a transcript, the same category as AWS's Call
   Analytics SKUs and Speechmatics' bolt-ons.
@@ -58,8 +63,9 @@ _PER = re.compile(r'inline">\s*per\s+([a-z0-9 ]+?)\s*<', re.I)
 #: "Rounded up to the nearest second, 15 second minimum"
 _MINIMUM = re.compile(r"(\d+(?:\.\d+)?)\s+second\s+minimum", re.I)
 
-#: Human transcription is people, not a model anyone deploys.
-_NOT_A_MODEL = {"human"}
+#: Transcription offerings that are not a model a request can select: human transcription is
+#: people, and Whisper Large has no `transcriber` value on either Rev AI API (module docstring).
+_NOT_A_MODEL = {"human", "whisper-large"}
 
 _PER_UNIT_SECONDS = {"hour": 3600.0, "minute": 60.0}
 
@@ -71,7 +77,8 @@ def _slug(name: str) -> str:
 class RevAiScraper(VendorScraper):
     vendor = "revai"
     url = "https://www.rev.ai/pricing"
-    min_models = 3
+    # Reverb and Reverb Foreign Language.
+    min_models = 2
 
     def extract(self, html: str) -> list[ScrapedModel]:
         starts = [m.start() for m in _BLOCK.finditer(html)]

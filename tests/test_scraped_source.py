@@ -297,10 +297,10 @@ async def test_real_adapters_run_against_their_fixtures_through_the_source():
             return_value=httpx.Response(200, text=(FIXTURES / "cartesia.html").read_text())
         )
         result = await run(sm, ca)
-    assert len(result.data) == 7 + 4
+    assert len(result.data) == 3 + 4
     assert result.data["cartesia/ink-2"]["billing"]["confidence"] == "derived"
-    assert result.data["speechmatics/batch-melia-1"]["input_cost_per_second"] == pytest.approx(
-        0.24 / 3600
+    assert result.data["speechmatics/standard"]["input_cost_per_second"] == pytest.approx(
+        0.45 / 3600
     )
 
 

@@ -33,14 +33,14 @@ def test_the_file_ships_with_the_package():
 
 def test_keys_are_provider_slash_model(loaded):
     assert "revai/reverb" in loaded
-    assert "gladia/async" in loaded
+    assert "gladia/solaria-1" in loaded
     for key, entry in loaded.items():
         provider, _, model = key.partition("/")
         assert entry["litellm_provider"] == provider
         assert entry["metadata"]["original_key"] == model
 
 
-@pytest.mark.parametrize("key", ["revai/reverb", "gladia/async"])
+@pytest.mark.parametrize("key", ["revai/reverb", "gladia/solaria-1"])
 def test_every_entry_declares_a_mode(loaded, key):
     """bud-connect derives endpoints from `mode` when nothing else says."""
     assert loaded[key]["mode"] in {"audio_transcription", "audio_speech"}
@@ -115,17 +115,16 @@ def test_a_missing_file_degrades_instead_of_raising(tmp_path):
 @pytest.mark.parametrize(
     ("key", "published_per_hour"),
     [
-        ("gladia/async", 0.61),
-        ("gladia/real-time", 0.75),
+        ("gladia/solaria-1", 0.75),  # the "Real-time" (live API) rate
         ("revai/reverb", 0.20),
         ("revai/reverb-foreign-language", 0.30),
-        ("revai/whisper-large", 0.30),  # published as $0.005/minute
-        ("speechmatics/batch-melia-1", 0.24),
-        ("speechmatics/batch-standard", 0.45),
-        ("speechmatics/batch-enhanced", 0.75),
-        ("speechmatics/real-time-standard", 0.45),
-        ("speechmatics/real-time-enhanced", 0.80),
-        ("speechmatics/linden-1", 0.40),
+        ("speechmatics/standard", 0.45),  # the "Real-time Standard" row
+        ("speechmatics/enhanced", 0.80),  # the "Real-time Enhanced" row
+        ("google_speech/chirp_3", 0.96),  # published as $0.016/minute
+        ("google_speech/chirp_2", 0.96),
+        ("google_speech/telephony", 0.96),
+        ("google_speech/medical_conversation", 4.68),  # published as $0.078/minute
+        ("google_speech/medical_dictation", 4.68),
     ],
 )
 def test_the_stored_rate_converts_back_to_the_published_figure(loaded, key, published_per_hour):
@@ -143,7 +142,7 @@ def test_revai_records_its_minimum_billable_duration(loaded):
     Without this a 3-second clip bills as 3 seconds instead of 15, and every short request
     is undercharged.
     """
-    for key in ("revai/reverb", "revai/reverb-foreign-language", "revai/whisper-large"):
+    for key in ("revai/reverb", "revai/reverb-foreign-language"):
         assert loaded[key]["billing"]["min_billable_units"] == 15
         assert loaded[key]["billing"]["rounding_increment"] == 1
 
@@ -349,3 +348,70 @@ def test_a_plain_decimal_rate_loads_as_a_float(tmp_path):
     )
     loaded = CuratedSource(path).load().data
     assert isinstance(loaded["vendor/model"]["input_cost_per_character"], float)
+
+
+# --------------------------------------------------------------------------------- #
+# keys are model ids the vendor's API accepts, not pricing-page labels
+# --------------------------------------------------------------------------------- #
+
+#: Keys this file used to carry that no request can name. Each was a pricing SKU or product
+#: label slugged into a key, or an id for an API WaaV does not call. One coming back is a
+#: model budapp offers and every request to it fails.
+RETIRED_KEYS = {
+    "google_speech/instant-custom-voice": "needs a v1beta1 voice_cloning_key; not a model id",
+    "google_speech/dynamic-batch-recognition": "a V2 BatchRecognize urgency mode, priced as a SKU",
+    "google_speech/recognition": "the V2 standard SKU; the models it prices are chirp_3 etc.",
+    "google_speech/speech-recognition-with-data-logging": "a V1 SKU",
+    "google_speech/speech-recognition-without-data-logging": "a V1 SKU",
+    "google_speech/medical-conversation": "the V2 id is medical_conversation",
+    "google_speech/medical-dictation": "the V2 id is medical_dictation",
+    "speechmatics/batch-standard": "Batch API; WaaV calls Realtime",
+    "speechmatics/batch-enhanced": "Batch API; WaaV calls Realtime",
+    "speechmatics/batch-melia-1": "melia-1 is Batch-only",
+    "speechmatics/linden-1": "Agent STT (/v2/agent) only",
+    "speechmatics/real-time-standard": "a page label; the Realtime id is `standard`",
+    "speechmatics/real-time-enhanced": "a page label; the Realtime id is `enhanced`",
+    "revai/whisper-large": "no `transcriber` value selects it on either Rev AI API",
+    "gladia/async": "a product name, pricing the pre-recorded API WaaV does not call",
+    "gladia/real-time": "a product name; the live API's only model is `solaria-1`",
+}
+
+#: The keys that replace them, with the rate each carries: the rate of the row it is priced
+#: from, which for every renamed key is the rate the old key had.
+MODEL_ID_KEYS = {
+    "google_speech/chirp_3": 0.016 / 60,  # V2 "Recognition" (Standard) row
+    "google_speech/chirp_2": 0.016 / 60,
+    "google_speech/telephony": 0.016 / 60,
+    "google_speech/medical_conversation": 0.078 / 60,
+    "google_speech/medical_dictation": 0.078 / 60,
+    "speechmatics/standard": 0.45 / 3600,  # "Real-time Standard"
+    "speechmatics/enhanced": 0.80 / 3600,  # "Real-time Enhanced"
+    "gladia/solaria-1": 0.75 / 3600,  # Starter "Real-time"
+}
+
+
+@pytest.mark.parametrize("key", sorted(RETIRED_KEYS))
+def test_a_retired_label_is_not_published(loaded, key):
+    assert key not in loaded, f"{key} is back: {RETIRED_KEYS[key]}"
+
+
+@pytest.mark.parametrize(("key", "per_second"), sorted(MODEL_ID_KEYS.items()))
+def test_each_model_id_is_published_at_its_rows_rate(loaded, key, per_second):
+    assert loaded[key]["mode"] == "audio_transcription"
+    assert loaded[key]["billing"]["unit"] == "second"
+    assert loaded[key]["input_cost_per_second"] == pytest.approx(per_second)
+
+
+def test_google_speech_to_text_keys_are_v2_model_ids(loaded):
+    """V2's `RecognitionConfig.model` takes underscored ids (`chirp_3`, `medical_dictation`).
+
+    The page's row labels slug to hyphens, and a hyphenated id is one Google rejects -- which
+    is how `medical-dictation` shipped. Text-to-speech keys are family names WaaV maps to
+    voices, so they are not held to this.
+    """
+    stt = {
+        key.split("/", 1)[1]
+        for key, entry in loaded.items()
+        if key.startswith("google_speech/") and entry["mode"] == "audio_transcription"
+    }
+    assert stt == {"chirp_3", "chirp_2", "telephony", "medical_conversation", "medical_dictation"}
