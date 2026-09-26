@@ -24,28 +24,33 @@ Parsed by table row rather than from stripped text, for the reason the Rev AI ad
 records: stripping tags joins every cell into one line and a model name then absorbs the
 column heading in front of it.
 
-Two things are deliberately skipped:
+Three things are deliberately skipped:
 
 * The Gemini TTS rows (Gemini 2.5 Flash TTS and friends) are priced per million *tokens*,
   input and output separately. That is a different billing basis from per-character and the
   catalog cannot express it, so they are left out rather than stored in a unit they are not
   quoted in.
+* "Instant custom voice". It is priced per character like the rest, but it is not a voice
+  family a request can name: it is reachable only through the v1beta1 `text:synthesize`
+  endpoint with a per-customer `voice_cloning_key` minted from consented reference audio.
+  Publishing it put a model in budapp that no request could reach.
 * Google's free tiers ("0 to 1 million characters"). The stored rate is the one charged
   after the free allowance, because a cost estimate that assumes a free tier is wrong for
   every account that has already used it.
 
-Speech-to-Text is a separate page and is NOT covered here. Its table interleaves list
-prices with 1-year and 3-year committed-savings columns, so picking a rate means knowing
-which column you are in -- and getting that wrong silently under-bills by 20%. It needs its
-own adapter written against that structure rather than a guess.
+Speech-to-Text is a separate page with a different table, read by
+:class:`GoogleSpeechSttScraper` below.
 """
 
 from __future__ import annotations
 
 import html as html_mod
+import logging
 import re
 
 from ..base import AUDIO_SPEECH, AUDIO_TRANSCRIPTION, ScrapedModel, VendorScraper
+
+logger = logging.getLogger(__name__)
 
 _ROW = re.compile(r"<tr\b[^>]*>(.*?)</tr>", re.S | re.I)
 _CELL = re.compile(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", re.S | re.I)
@@ -74,11 +79,16 @@ def _slug(name: str) -> str:
     return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", name.lower())).strip("-")
 
 
+#: Character-priced TTS rows that are not a model a request can name. See the module
+#: docstring: instant custom voice needs a per-customer cloning key on the v1beta1 API.
+_TTS_NOT_A_MODEL = frozenset({"instant-custom-voice"})
+
+
 class GoogleSpeechTtsScraper(VendorScraper):
     vendor = "google_speech"
     name = "google_speech_tts"
     url = "https://cloud.google.com/text-to-speech/pricing"
-    # Chirp 3 HD, instant custom voice, WaveNet, Studio, Standard, Neural2, Polyglot.
+    # Chirp 3 HD, WaveNet, Studio, Standard, Neural2, Polyglot.
     min_models = 6
 
     def extract(self, html: str) -> list[ScrapedModel]:
@@ -101,7 +111,7 @@ class GoogleSpeechTtsScraper(VendorScraper):
             # The name is the first cell, up to the SKU that follows it.
             label = _strip_tags(cells[0]).split("(sku")[0].strip()
             key = _slug(label)
-            if not key:
+            if not key or key in _TTS_NOT_A_MODEL:
                 continue
 
             rate = float(price.group(1))
@@ -144,10 +154,47 @@ _SECONDS_PER_MINUTE = 60.0
 
 
 def _stt_slug(label: str) -> str:
-    # Parentheses are meaningful here -- "with data logging" and "without data logging" are
-    # different SKUs at different prices -- so unlike the TTS names they are kept.
+    """Normalise a pricing ROW label, e.g. "Medical Dictation (sku:...)" -> `medical-dictation`.
+
+    This names the row, not a model: the page prices SKUs, and :data:`STT_ROWS` is what turns
+    a row into the model ids it prices. Parentheses are meaningful here -- "with data logging"
+    and "without data logging" are different SKUs at different prices -- so unlike the TTS
+    names they are kept.
+    """
     label = _SKU.sub("", label).translate(_FOOTNOTES)
     return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", label.lower())).strip("-")
+
+
+#: Pricing row (by :func:`_stt_slug`) -> the Speech-to-Text V2 model ids it prices.
+#:
+#: The keys are what a V2 `RecognitionConfig.model` accepts, because V2 StreamingRecognize is
+#: the API WaaV calls. This adapter used to publish the row labels themselves --
+#: `recognition`, `speech-recognition-with-data-logging` -- which are SKUs, not models, and
+#: fail every request that names one.
+#:
+#: * "Recognition" is the single row of the V2 "Standard recognition models" table, so it
+#:   prices every V2 standard model: `chirp_3`, `chirp_2` and `telephony`, the models
+#:   docs.cloud.google.com/speech-to-text/docs/transcription-model lists for V2.
+#: * The medical rows price `medical_dictation` and `medical_conversation`, which the V2
+#:   supported-languages table lists for en-US in `global`, `us` and `eu`. Underscores, not
+#:   the row label's hyphens: the hyphenated form is not an id Google accepts.
+STT_ROWS: dict[str, tuple[str, ...]] = {
+    "recognition": ("chirp_3", "chirp_2", "telephony"),
+    "medical-dictation": ("medical_dictation",),
+    "medical-conversation": ("medical_conversation",),
+}
+
+#: Priced rows that deliberately map to no model, with the reason. Anything neither here nor
+#: in :data:`STT_ROWS` is a row the page did not have when this adapter was written, and is
+#: logged so a person can decide what it prices.
+STT_ROWS_SKIPPED: dict[str, str] = {
+    "dynamic-batch-recognition": (
+        "a discounted urgency mode of V2 BatchRecognize on the same models, not a model; "
+        "WaaV streams"
+    ),
+    "speech-recognition-with-data-logging": "a V1 SKU; WaaV calls V2",
+    "speech-recognition-without-data-logging": "a V1 SKU; WaaV calls V2",
+}
 
 
 class GoogleSpeechSttScraper(VendorScraper):
@@ -177,14 +224,17 @@ class GoogleSpeechSttScraper(VendorScraper):
 
     One header row on the page lists only three columns while its data rows carry five, so
     the heading search tolerates a short header but still requires a match.
+
+    Rows are SKUs, not models; :data:`STT_ROWS` maps each one to the V2 model ids it prices,
+    and the column checks above run on every priced row, mapped or not, since a misread
+    column is a table-level fault.
     """
 
     vendor = "google_speech"
     name = "google_speech_stt"
     url = "https://cloud.google.com/speech-to-text/pricing"
-    # Recognition, dynamic batch, speech recognition with/without logging, medical
-    # dictation, medical conversation.
-    min_models = 5
+    # chirp_3, chirp_2 and telephony from the Recognition row, and the two medical models.
+    min_models = sum(len(ids) for ids in STT_ROWS.values())
 
     def extract(self, html: str) -> list[ScrapedModel]:
         tables = re.findall(r"<table\b.*?</table>", html, re.S | re.I)
@@ -208,8 +258,8 @@ class GoogleSpeechSttScraper(VendorScraper):
                     continue
 
                 label = cells[0]
-                key = _stt_slug(label)
-                if not key:
+                row = _stt_slug(label)
+                if not row:
                     continue
 
                 rate_per_minute = _first_paid_rate(cells[list_index])
@@ -225,26 +275,40 @@ class GoogleSpeechSttScraper(VendorScraper):
                 ]
                 if any(rate_per_minute < s for s in savings):
                     raise ValueError(
-                        f"{key}: took ${rate_per_minute:g}/min as list but a later column is "
+                        f"{row}: took ${rate_per_minute:g}/min as list but a later column is "
                         f"more expensive ({', '.join(f'${s:g}' for s in savings)}); the "
                         "columns are being misread"
                     )
 
-                out.append(
-                    ScrapedModel(
-                        model=key,
-                        mode=AUDIO_TRANSCRIPTION,
-                        unit="second",
-                        rate=rate_per_minute / _SECONDS_PER_MINUTE,
-                        published_as=f"${rate_per_minute:g} per minute",
-                        note=(
-                            f"{_SKU.sub('', label).strip()}; list price "
-                            f"${rate_per_minute:g}/minute / 60, taken from the "
-                            f"{header_cells[list_index].split('*')[0].strip()!r} column "
-                            "rather than a committed-savings column, and after any free tier."
-                        ),
+                models = STT_ROWS.get(row)
+                if models is None:
+                    if row not in STT_ROWS_SKIPPED:
+                        logger.warning(
+                            "Google STT pricing row %r ($%g/min) maps to no model; add it to "
+                            "STT_ROWS or STT_ROWS_SKIPPED",
+                            row,
+                            rate_per_minute,
+                        )
+                    continue
+
+                sku = _SKU.sub("", label).strip()
+                for model in models:
+                    out.append(
+                        ScrapedModel(
+                            model=model,
+                            mode=AUDIO_TRANSCRIPTION,
+                            unit="second",
+                            rate=rate_per_minute / _SECONDS_PER_MINUTE,
+                            published_as=f"${rate_per_minute:g} per minute",
+                            note=(
+                                f"{sku!r} row; list price "
+                                f"${rate_per_minute:g}/minute / 60, taken from the "
+                                f"{header_cells[list_index].split('*')[0].strip()!r} column "
+                                "rather than a committed-savings column, and after any free "
+                                "tier."
+                            ),
+                        )
                     )
-                )
         return out
 
 

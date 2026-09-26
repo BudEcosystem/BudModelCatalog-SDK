@@ -59,7 +59,7 @@ class ScrapedModel:
     """One billable model read off a vendor's pricing page.
 
     Attributes:
-        model: Catalog key suffix, e.g. `batch-melia-1`. Must not contain `/`, which
+        model: Catalog key suffix, e.g. `enhanced`. Must not contain `/`, which
             separates vendor from model in a catalog key.
         mode: :data:`AUDIO_TRANSCRIPTION` or :data:`AUDIO_SPEECH`.
         unit: `second` or `character` -- the unit `rate` is expressed in, which is not
